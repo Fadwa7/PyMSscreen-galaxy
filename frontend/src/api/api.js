@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE = 'http://localhost:5000';
+const API_BASE = '/api';
 
 export const saveState = (state) => {
   return axios.post(`${API_BASE}/save_state`, state);
@@ -19,11 +19,11 @@ export const generateTable = (payload) => {
 };
 
 export const saveExtractConfig = async (config) => {
-  return axios.post('http://localhost:5000/save_extract_config', config);
+  return axios.post('${API_BASE}/save_extract_config', config);
 };
 
 export const extractData = (payload) => {
-  return axios.post(`http://localhost:5000/extract_data`, payload, {
+  return axios.post(`${API_BASE}/extract_data`, payload, {
     headers: {
       'Content-Type': 'application/json',
     }
@@ -31,7 +31,7 @@ export const extractData = (payload) => {
 };
 
 export const prescreenData = (payload) => {
-  return axios.post('http://localhost:5000/prescreen_data', payload, {
+  return axios.post('${API_BASE}/prescreen_data', payload, {
     headers: {
       'Content-Type': 'application/json',
     }
@@ -39,7 +39,7 @@ export const prescreenData = (payload) => {
 };
 
 export const loadComprehensiveTable = async (workingDirectory) => {
-  return axios.get('http://localhost:5000/load_comprehensive_table', {
+  return axios.get('${API_BASE}/load_comprehensive_table', {
     params: { working_directory: workingDirectory }
   });
 };
@@ -63,7 +63,7 @@ export const exportSummaryPDF = async (compounds, working_directory) => {
   };
 
   try {
-    const response = await axios.post('http://localhost:5000/export_summary_pdf', payload, {
+    const response = await axios.post('${API_BASE}/export_summary_pdf', payload, {
       responseType: 'blob'
     });
     return response.data;
