@@ -11,7 +11,7 @@ from rdkit.Chem import Descriptors, rdMolDescriptors
 from pyopenms import MSExperiment, MzMLFile
 
 app = Flask(__name__)
-from routes.pdf_export import register_pdf_export
+from app.routes.pdf_export import register_pdf_export
 register_pdf_export(app)
 app.secret_key = 'supersecretkey'
 CORS(app, supports_credentials=True, resources={r"/*": {"origins": "http://localhost:5173"}})
