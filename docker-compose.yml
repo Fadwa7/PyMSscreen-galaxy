@@ -1,16 +1,21 @@
-version: '3.8'
+version: '3.0'
 
 services:
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile.prod
-    ports:
-      - "80:80"
-
   backend:
     build: ./backend
-    expose:
-      - "5000"
-    environment:
-      - FLASK_ENV=production
+    container_name: backend
+    ports:
+      - "5000:5000"
+    volumes:
+      - ${UPLOADS_PATH}:/app/uploads
+    restart: always
+
+  frontend:
+    build: ./frontend
+    container_name: frontend
+    ports:
+      - "3000:80"
+    restart: always
+    depends_on:
+      - backend
+

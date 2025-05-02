@@ -5,6 +5,8 @@ import { useNavigate } from 'react-router-dom';
 
 const LandingPage = () => {
   const { appState, updateAppState } = useAppState();
+  const [draggedRowIndex, setDraggedRowIndex] = useState(null);
+
   
   useEffect(() => {
   if (appState.working_directory && mzmlFiles.length === 0) {
@@ -114,7 +116,7 @@ const handleSaveState = async () => {
 
   const handleGenerateTable = async () => {
     try {
-      const res = await generateTable({ workingDirectory });
+      const res = await generateTable({workingDirectory});
       alert('Table generated successfully!');
     } catch (err) {
       console.error("Table generation failed:", err);
@@ -157,6 +159,21 @@ const handleSaveState = async () => {
       }}>
         <h2>Data Configuration</h2>
 
+        <div style={{ marginBottom: '10px' }}>
+          <details style={{ background: '#f0faff', padding: '10px', borderRadius: '8px', border: '1px solid #cceeff' }}>
+            <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>ℹ️ Instructions</summary>
+            <ol style={{ paddingLeft: '20px', marginTop: '10px' }}>
+              <li>Set the <strong>Working Directory</strong> by pasting the full path containing the Compound CSV and mzML files.</li>
+              <li>Upload the <strong>Compound CSV</strong> (should include <em>ID</em>, <em>Name</em>, <em>SMILES</em> — or <em>ID</em> and <em>mz</em> for suspect screening).</li>
+              <li>Upload one or more <strong>mzML Files</strong>.</li>
+              <li>Edit <strong>Tags</strong> (unique labels for each file) and select the appropriate <strong>Adduct</strong>.</li>
+              <li>Click <strong>"Save State"</strong> to store the configuration, and <strong>"Generate Table"</strong> to proceed.</li>
+              <li><em>Optional:</em> If the same working directory is specified, click <strong>"Load State"</strong> to retrieve your previously saved configuration.</li>
+              <li>Once the table is successfully generated, proceed to the <strong>Extraction & Prescreening</strong> step.</li>
+            </ol>
+          </details>
+        </div>
+
         <label>Working Directory:</label>
         <input type="text" value={workingDirectory} onChange={(e) => setWorkingDirectory(e.target.value)} style={{ width: '100%' }} />
 
@@ -179,7 +196,19 @@ const handleSaveState = async () => {
         </thead>
         <tbody>
           {mzmlFiles.map((file, idx) => (
-            <tr key={idx}>
+            <tr 
+              key={idx}
+              draggable
+              onDragStart={() => setDraggedRowIndex(idx)}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => {
+                const updatedFiles = [...mzmlFiles];
+                const dragged = updatedFiles.splice(draggedRowIndex, 1)[0];
+                updatedFiles.splice(idx, 0, dragged);
+                setMzmlFiles(updatedFiles);
+              }}
+              style={{ border: '1px solid #ddd', padding: '8px', cursor: 'move' }}
+             >
               <td style={{ border: '1px solid #ddd', padding: '8px' }}>{file.name}</td>
               <td style={{ border: '1px solid #ddd', padding: '8px' }}>
                 <select
@@ -201,8 +230,8 @@ const handleSaveState = async () => {
                 />
               </td>
               <td style={{ border: '1px solid #ddd', padding: '8px' }}>
-		  <button onClick={() => handleDeleteRow(file.name)} style={{ color: 'red' }}>Delete</button>
-	     </td>
+		              <button onClick={() => handleDeleteRow(file.name)} style={{ color: 'red' }}>Delete</button>
+	            </td>
             </tr>
           ))}
         </tbody>

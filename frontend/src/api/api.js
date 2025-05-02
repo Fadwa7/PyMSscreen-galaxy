@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE = 'http://localhost:5000';
+const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5000';
 
 export const saveState = (state) => {
   return axios.post(`${API_BASE}/save_state`, state);
@@ -19,11 +19,22 @@ export const generateTable = (payload) => {
 };
 
 export const saveExtractConfig = async (config) => {
-  return axios.post('http://localhost:5000/save_extract_config', config);
+  return axios.post(`${API_BASE}/save_extract_config`, config);
 };
 
+export const loadExtractionConfig = async (workingDir) => {
+  try {
+    const params = new URLSearchParams({ working_directory: workingDir });
+    const res = await axios.get(`${API_BASE}/load_extraction_config`, { params });
+    return parseFloat(res.data.ret_time_shift_tol) || 0.5;
+  } catch {
+    return 0.5;
+  }
+};
+
+
 export const extractData = (payload) => {
-  return axios.post(`http://localhost:5000/extract_data`, payload, {
+  return axios.post(`${API_BASE}/extract_data`, payload, {
     headers: {
       'Content-Type': 'application/json',
     }
@@ -31,7 +42,7 @@ export const extractData = (payload) => {
 };
 
 export const prescreenData = (payload) => {
-  return axios.post('http://localhost:5000/prescreen_data', payload, {
+  return axios.post(`${API_BASE}/prescreen_data`, payload, {
     headers: {
       'Content-Type': 'application/json',
     }
@@ -39,7 +50,7 @@ export const prescreenData = (payload) => {
 };
 
 export const loadComprehensiveTable = async (workingDirectory) => {
-  return axios.get('http://localhost:5000/load_comprehensive_table', {
+  return axios.get(`${API_BASE}/load_comprehensive_table`, {
     params: { working_directory: workingDirectory }
   });
 };
@@ -63,7 +74,7 @@ export const exportSummaryPDF = async (compounds, working_directory) => {
   };
 
   try {
-    const response = await axios.post('http://localhost:5000/export_summary_pdf', payload, {
+    const response = await axios.post(`${API_BASE}/export_summary_pdf`, payload, {
       responseType: 'blob'
     });
     return response.data;
@@ -71,4 +82,11 @@ export const exportSummaryPDF = async (compounds, working_directory) => {
     console.error('PDF export failed:', error);
     throw new Error('PDF export failed');
   }
+};
+
+export const saveQAFlags = (working_directory, flags) => {
+  return axios.post(`${API_BASE}/save_qa_flags`, {
+    working_directory,
+    flags
+  });
 };

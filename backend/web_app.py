@@ -8,13 +8,11 @@ import numpy as np
 import yaml
 from rdkit import Chem
 from rdkit.Chem import Descriptors, rdMolDescriptors
-from pyopenms import MSExperiment, MzMLFile
+
 
 app = Flask(__name__)
-from routes.pdf_export import register_pdf_export
-register_pdf_export(app)
 app.secret_key = 'supersecretkey'
-CORS(app, supports_credentials=True, resources={r"/*": {"origins": "http://localhost:5173"}})
+CORS(app, supports_credentials=True, origins="*")
 
 ADDUCT_MASS = {
     "[M+H]+": 1.007276,
@@ -197,6 +195,21 @@ def save_extract_config():
     except Exception as e:
         print(f"❌ Error saving extract_config.yaml: {e}")
         return jsonify({"error": str(e)}), 500
+    
+@app.route('/load_extraction_config', methods=['GET'])
+def load_extraction_config():
+    working_dir = request.args.get('working_directory')
+    config_path = os.path.join(working_dir, 'extract_config.yaml')
+
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        ret_time_shift_tol = config.get('ret_time_shift_tol', 0.5)
+        return jsonify({'ret_time_shift_tol': ret_time_shift_tol})
+    except Exception as e:
+        print(f"Error loading extract_config.yaml: {e}")
+        return jsonify({'ret_time_shift_tol': 0.5})
+
 
 @app.route("/extract_data", methods=["POST"])
 def extract_data():
@@ -236,7 +249,7 @@ def extract_data():
         rt_win = float(config["tolerance"]["rt"].replace(" min", ""))
 
         for file_obj in state["mzml_files"]:
-            mzml_path = file_obj["file"]
+            mzml_path = os.path.join(working_dir, file_obj["file"])
             tag = file_obj["tag"]
             adduct = file_obj["adduct"]
 
@@ -304,7 +317,10 @@ def extract_data():
         return jsonify({"status": "success", "message": "Extraction complete"})
 
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+     import traceback
+     print("❌ Error in /extract_data:", e)
+     traceback.print_exc()
+     return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route("/prescreen_data", methods=["POST"])
 def prescreen_data():
@@ -462,24 +478,90 @@ def load_comprehensive_table():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/load_summary_table', methods=['GET'])
+def load_summary_table():
+    try:
+        working_directory = os.path.expanduser(request.args.get("working_directory", "."))
+        table_path = os.path.join(working_directory, "summary_table.csv")
+
+        if not os.path.exists(table_path):
+            return jsonify([])
+
+        df = pd.read_csv(table_path)
+        df.fillna("", inplace=True)
+        return jsonify(df.to_dict(orient="records"))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/save_qa_flags', methods=['POST'])
 def save_qa_flags():
     try:
+        import pandas as pd
         data = request.get_json()
         flags = data.get("flags", {})
         working_directory = os.path.expanduser(data.get("working_directory", "."))
 
-        table_path = os.path.join(working_directory, "summary.csv")
+        table_path = os.path.join(working_directory, "summary_table.csv")
+        if not os.path.exists(table_path):
+            return jsonify({"error": "summary_table.csv not found"}), 404
 
-        rows = []
-        for compound_id, flag_data in flags.items():
-            row = {"ID": compound_id}
-            row.update(flag_data)
-            rows.append(row)
+        df = pd.read_csv(table_path)
 
-        pd.DataFrame(rows).to_csv(table_path, index=False)
-        return jsonify({"message": f"QA flags saved to {table_path}"})
+        for compound_key, update in flags.items():
+            try:
+                compound_id, adduct, tag = compound_key.split("_", 2)
+            except ValueError:
+                return jsonify({"error": f"Invalid compound key format: {compound_key}"}), 400
+
+            mask = (df["ID"].astype(str) == str(compound_id)) & \
+                   (df["adduct"] == adduct) & (df["tag"] == tag)
+
+            print(f"🛠 Updating row for ID={compound_id}, adduct={adduct}, tag={tag}")
+            print("➡️  Incoming flags:", update)
+
+            for display_key, summary_key in {
+                "MS1_Exists": "qa_ms1_exists",
+                "MS2_Exists": "qa_ms2_exists",
+                "MS1_Intensity": "qa_ms1_good_int",
+                "RT_Alignment": "alignment",
+                "S2N_ratio": "qa_ms1_above_noise"
+            }.items():
+                if display_key in update:
+                    value = bool(update[display_key])
+                    for idx in df[mask].index:
+                        df.at[idx, summary_key] = value
+                        print(f"🔄 Set {summary_key} at row {idx} = {value}")
+
+            for idx in df[mask].index:
+                all_flags = [
+                    df.at[idx, "qa_ms1_exists"],
+                    df.at[idx, "qa_ms1_good_int"],
+                    df.at[idx, "qa_ms1_above_noise"],
+                    df.at[idx, "qa_ms2_exists"],
+                    df.at[idx, "qa_ms2_good_int"],
+                    df.at[idx, "qa_ms2_near"]
+                ]
+                result = all(all_flags)
+                df.at[idx, "qa_pass"] = result
+                print(f"✅ qa_pass for row {idx} = {result}")
+
+        # 🔄 Ensure booleans are saved correctly
+        for col in [
+            "qa_ms1_exists", "qa_ms1_good_int", "qa_ms1_above_noise",
+            "qa_ms2_exists", "qa_ms2_good_int", "qa_ms2_near",
+            "qa_pass", "alignment", "ms2_sel"
+        ]:
+            if col in df.columns:
+                df[col] = df[col].astype(bool)
+
+        print(f"💾 Writing updated summary table to: {table_path}")
+        df.to_csv(table_path, index=False)
+        print("✅ Save completed.")
+
+        return jsonify({"message": f"QA flags updated in {table_path}"})
+
     except Exception as e:
+        print(f"❌ Error saving flags: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -549,7 +631,6 @@ def save_plots():
         return jsonify({"message": f"Saved summary plot PDF to {output_path}"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
 
 
 if __name__ == '__main__':
