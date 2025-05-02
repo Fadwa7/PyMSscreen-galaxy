@@ -8,6 +8,8 @@ services:
       - "5000:5000"
     volumes:
       - ${UPLOADS_PATH}:/app/uploads
+    env_file:
+      - .env
     restart: always
 
   frontend:

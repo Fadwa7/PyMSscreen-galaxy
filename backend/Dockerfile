@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
     libbz2-dev \
     liblzma-dev \
     libglib2.0-0 \  
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
