@@ -99,9 +99,16 @@ export default function ExtractionPage() {
       </div>
 
       <div style={{ padding: '20px', textAlign: 'center', maxWidth: '90%', margin: 'auto' }}>
-        <p>
-          Spectral extraction is controlled by the parameters under the Extraction tab, while the quality check parameters are under the Prescreening tab. Configure Shinyscreen, load compound lists, and proceed to extraction and quality checks.
-        </p>
+        <details style={{ background: '#f0faff', padding: '10px', borderRadius: '8px', border: '1px solid #cceeff' }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>ℹ️ Extraction & Prescreening Instructions</summary>
+          <ol style={{ paddingLeft: '20px', marginTop: '10px', textAlign: 'left' }}>
+            <li>Default parameters for <strong>spectral extraction</strong> and <strong>prescreening</strong> are shown under their respective sections below.</li>
+            <li>After saving, the configuration is written to <code>extract_config.yaml</code> in the working directory.</li>
+            <li>Proceed with <strong>Extraction & Prescreening</strong> — this may take time depending on the number of compounds.</li>
+            <li>Upon completion, a <code>summary_table.csv</code> file containing quality control results will be saved in the working directory.</li>
+            <li>Once the summary table is available, proceed to the <strong>Visualization</strong> step to explore the spectral data.</li>
+          </ol>
+        </details>
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', maxWidth: '90%', margin: 'auto' }}>

@@ -1,9 +1,9 @@
-
 import React, { useEffect, useState } from 'react';
 import Plot from 'react-plotly.js';
 import Papa from 'papaparse';
 import axios from 'axios';
 import { useAppState } from '../context/AppStateContext';
+import { loadExtractionConfig, saveExtractConfig } from '../api/api';
 import chroma from 'chroma-js';
 
 const parsePeakList = (peakStr) => {
@@ -47,6 +47,66 @@ const loadComprehensiveTable = async (workingDir) => {
   }
 };
 
+const handleHighRes = (smiles, compoundName) => {
+  if (!smiles) return;  // Ensure SMILES string is provided
+
+  // Construct high-res image URL using simolecule.com/cdkdepict
+  const highResUrl = `https://cactus.nci.nih.gov/chemical/structure/${encodeURIComponent(smiles)}/image?height=1024&width=1024&title=${encodeURIComponent(compoundName || 'Unknown Compound')}`;
+
+  // Log the URL to the console for debugging
+  console.log("High-Resolution URL:", highResUrl);
+
+  // Open a new popup window
+  const popupWindow = window.open('', '_blank', 'width=800,height=800,scrollbars=yes,resizable=yes');
+
+  // Add content to the popup window
+  popupWindow.document.write(`
+    <html>
+      <head>
+        <title>High-Resolution Image</title>
+        <style>
+          body {
+            text-align: center;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            background-color: #f4f4f4;
+          }
+          h1 {
+            margin-bottom: 20px;
+            font-size: 20px;
+            color: #333;
+          }
+          img {
+            max-width: 100%;
+            max-height: 80vh;
+            border: 1px solid #ccc;
+            margin-bottom: 20px;
+          }
+          button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 5px;
+          }
+          button:hover {
+            background-color: #45a049;
+          }
+        </style>
+      </head>
+      <body>
+        <h1>${compoundName || 'Unknown Compound'}</h1>
+        <img src="${highResUrl}" alt="High-Resolution Structure" />
+        <br />
+        <button onclick="window.close();">Close</button>
+      </body>
+    </html>
+  `);
+};
+
 const CompoundPlot = ({ compoundGroup, onExportReady }) => {
   const handleExportSummary = async () => {
     console.log("🚀 Calling exportSummaryPDF with:", compoundGroup, appState.working_directory);
@@ -66,15 +126,18 @@ const CompoundPlot = ({ compoundGroup, onExportReady }) => {
     }
   };
 
+
   const [useRelative, setUseRelative] = useState(true);
   const { appState } = useAppState();
   const [plotObj, setPlotObj] = useState(null);
   const [structureInfo, setStructureInfo] = useState(null);
+  const [mzText, setMzText] = useState('');
 
   useEffect(() => {
     const fetchData = async () => {
       if (!compoundGroup?.length || !appState?.working_directory) return;
-
+      
+      const retTimeShiftTol = await loadExtractionConfig(appState.working_directory);
       let data = [];
       let maxMS1Y = 0;
       let maxFragmentY = 0;
@@ -114,20 +177,20 @@ const CompoundPlot = ({ compoundGroup, onExportReady }) => {
         }
 
         if (ms2Data.length && ms1RT !== 'N/A') {
-          const closestMS2 = ms2Data.reduce((a, b) => {
-            return Math.abs(parseFloat(a.ms2_rt) - ms1RT) < Math.abs(parseFloat(b.ms2_rt) - ms1RT) ? a : b;
-          });
-
-          const intensity = parseFloat(closestMS2.ms2_intensity);
-          const yClosest = useRelative ? [0, 1] : [0, intensity];
+          const candidates = ms2Data.filter(m => Math.abs(parseFloat(m.ms2_rt) - ms1RT) <= retTimeShiftTol);
+          if (candidates.length) {
+            const closestMS2 = candidates.reduce((a, b) => (
+              Math.abs(parseFloat(a.ms2_rt) - ms1RT) < Math.abs(parseFloat(b.ms2_rt) - ms1RT) ? a : b
+            ));
 
           const identifier = `${tag}_${adduct}`;
           const color = colors[uniqueIds.indexOf(identifier)];
-            data.push({
-            x: [closestMS2.ms2_rt, closestMS2.ms2_rt],
-            y: yClosest,
+
+          data.push({
+            x: [parseFloat(closestMS2.ms2_rt), parseFloat(closestMS2.ms2_rt)],
+            y: useRelative ? [0, 1050] : [0, maxMS1Y * 1.1],
             mode: 'lines',
-            name: `MS2 Peak | ${tag} | ${compoundId}`,
+            name: `MS2 Peak | ${tag} | RT: ${parseFloat(closestMS2.ms2_rt).toFixed(2)} | ${adduct} | ${compoundId}`,
             line: { dash: 'dash', color: color, width: 2 },
             xaxis: 'x2',
             yaxis: 'y2',
@@ -135,11 +198,12 @@ const CompoundPlot = ({ compoundGroup, onExportReady }) => {
           });
 
           const peaks = parsePeakList(closestMS2.peak_list);
-          const maxY = Math.max(...peaks.map(p => p.y));
-          if (!useRelative) maxFragmentY = Math.max(maxFragmentY, ...peaks.map(p => p.y));
+          if (peaks.length) {
+            const maxY = Math.max(...peaks.map(p => p.y));
+            maxFragmentY = useRelative ? 1050 : Math.max(maxFragmentY, maxY);
 
           peaks.forEach(p => {
-            const yVal = useRelative ? p.y / maxY : p.y;
+            const yVal = useRelative ? p.y / maxY * 1050 : p.y;
             data.push({
               x: [p.x, p.x],
               y: [0, yVal],
@@ -164,7 +228,9 @@ const CompoundPlot = ({ compoundGroup, onExportReady }) => {
             xaxis: 'x3',
             yaxis: 'y3'
           });
+         }
         }
+       }
       }
 
       const layout = {
@@ -172,36 +238,44 @@ const CompoundPlot = ({ compoundGroup, onExportReady }) => {
         width: 1000,
         margin: { l: 80, r: 60, t: 40, b: 50 },
         grid: { rows: 3, columns: 1, pattern: 'independent', roworder: 'top to bottom' },
-        title: { text: 'Mass Spectra Overview' },
+        title: {
+          text: first.known === "suspect"
+            ? `Mass Spectra Overview — m/z: ${parseFloat(first.mz).toFixed(4)}`
+            : `Mass Spectra Overview — Name: ${first.Name} | m/z: ${parseFloat(first.mz).toFixed(4)}`,
+          xanchor: 'left',
+          x: 0
+        },     
         showlegend: true,
-        xaxis: { title: 'RT (min)', range: [0, 30], anchor: 'y1' },
+        xaxis: { title:{ text: 'RT (min)'}, range: [0, 30], anchor: 'y1' },
         yaxis: { title: { text: 'MS1 Intensity' }, tickformat: '.2e', anchor: 'x1' },
-        xaxis2: { title: 'RT (min)', range: [0, 30], anchor: 'y2' },
+        xaxis2: { title:{ text: 'RT (min)'}, range: [0, 30], anchor: 'y2' },
         yaxis2: {
           title: { text: 'MS2 Intensity' },
-          range: useRelative ? [0, 1.05] : [0, maxMS1Y * 1.1],
+          range: useRelative ? [0, 1050] : [0, maxMS1Y * 1.1],
           tickformat: useRelative ? '' : '.2e',
           anchor: 'x2'
         },
         xaxis3: { title: 'm/z', anchor: 'y3' },
         yaxis3: {
           title: { text: 'Fragment Intensity' },
-          range: useRelative ? [0, 1.05] : [0, maxFragmentY * 1.1],
+          range: useRelative ? [0, 1050] : [0, maxFragmentY * 1.1],
           tickformat: useRelative ? '' : '.2e',
           anchor: 'x3'
         }
       };
 
       setPlotObj({ data, layout });
+      setMzText(`Name: ${first.Name} | m/z: ${parseFloat(first.mz).toFixed(4)}`);
 
       if (onExportReady && match?.SMILES) {
-        const smilesUrl = `https://cactus.nci.nih.gov/chemical/structure/${encodeURIComponent(match.SMILES)}/image?height=180&width=180`;
+        const smilesUrl = `https://cactus.nci.nih.gov/chemical/structure/${encodeURIComponent(match.SMILES)}/image?height=180&width=180&title=${encodeURIComponent(match.Name || 'Unknown')}`;
         onExportReady({ plots: [{ id: 'stackedPlot', data, layout }], smilesUrl });
       }
     };
 
     fetchData();
   }, [compoundGroup, appState, useRelative, onExportReady]);
+
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', overflowY: 'auto', padding: '1rem', gap: '1.5rem' }}>
@@ -229,18 +303,33 @@ const CompoundPlot = ({ compoundGroup, onExportReady }) => {
         </div>
       )}
 
+      {/* Copyable Name and m/z */}
+      <div
+        style={{
+          marginTop: '12px',
+          padding: '8px',
+          background: '#f7f7f7',
+          border: '1px solid #ccc',
+          borderRadius: '6px',
+          fontFamily: 'monospace',
+          fontSize: '13px',
+          userSelect: 'text',
+        }}
+      >
+        {mzText}
+      </div>
+
       {structureInfo?.smiles && (
         <div style={{ alignSelf: 'center', width: '220px', padding: '0.5rem', backgroundColor: 'white', border: '1px solid #D1D5DB', borderRadius: '0.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
           <img
-            src={`https://cactus.nci.nih.gov/chemical/structure/${encodeURIComponent(structureInfo.smiles)}/image?height=180&width=180`}
+            src={`https://cactus.nci.nih.gov/chemical/structure/${encodeURIComponent(structureInfo.smiles)}/image?width=180&height=180`}
             alt="Structure"
-            title={`Compound: ${structureInfo.name}
-SMILES: ${structureInfo.smiles}`}
+            title={`Compound: ${structureInfo.name}\nSMILES: ${structureInfo.smiles}`}
             style={{ width: '180px', height: '180px', objectFit: 'contain', border: '1px solid #E5E7EB', borderRadius: '0.25rem' }}
           />
           <a
-            href={`https://cactus.nci.nih.gov/chemical/structure/${encodeURIComponent(structureInfo.smiles)}/image?height=1024&width=1024`}
-            download={`${structureInfo.name || 'structure'}.png`}
+            href={`#`}
+            onClick={() => handleHighRes(structureInfo.smiles, structureInfo.name)}
             style={{ fontSize: '0.75rem', color: '#2563EB', marginTop: '0.5rem', textDecoration: 'underline', textAlign: 'center' }}
           >
             ⬇ High-Res
