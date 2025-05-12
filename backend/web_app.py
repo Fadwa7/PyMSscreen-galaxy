@@ -276,9 +276,16 @@ def extract_data():
                     eic_rt.append(rt)
                     eic_int.append(intensity)
 
+                eic_filename = f"{row.ID}_{adduct}_{tag}_EIC.csv"
+                eic_path = os.path.join(spectra_dir, eic_filename)
                 eic_df = pd.DataFrame({"rt": eic_rt, "intensity": eic_int})
-                eic_df.to_csv(os.path.join(spectra_dir, f"{row.ID}_{adduct}_{tag}_EIC.csv"), index=False)
 
+                try:
+                  eic_df.to_csv(eic_path, index=False)
+                  print(f"✅ Saved EIC: {eic_filename}")
+                except Exception as e:
+                  print(f"❌ Failed to save EIC for ID={row.ID}: {e}", flush=True)   
+                
                 # MS2 fragment + RT
                 matched_ms2 = []
                 for sp in ms2_spectra:
