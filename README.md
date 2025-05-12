@@ -1,4 +1,4 @@
-#+TITLE: The Shinyscreen Package
+# pyMSscreen
 
 ## Overview
 
@@ -40,10 +40,10 @@ Then, open `.env` in a text editor and add the following line:
 UPLOADS_PATH=/absolute/path/to/your/data/folder
 ```
 
-On Windows with Docker Desktop + WSL2, the path should look like:
+On Windows with Docker Desktop + WSL2, the path should look like(important to include "\\"):
 
 ```
-UPLOADS_PATH=/mnt/c/Users/yourname/Documents/ms_data
+UPLOADS_PATH=C:\\Users\\name\\path-to-input-data
 ```
 
 Ensure that this path exists and contains:
@@ -76,7 +76,7 @@ This will launch:
 ## Usage Instructions
 
 1. Navigate to `http://localhost:3000`
-2. Paste your working directory path (same as in `.env`)
+2. Working Directory: /app/uploads/ (always set this path in the UI)
 3. Upload:
    - The compound CSV
    - One or more `.mzML` files

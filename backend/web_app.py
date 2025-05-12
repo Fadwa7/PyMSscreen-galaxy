@@ -101,7 +101,7 @@ def generate_table():
             return jsonify({"error": "Compound CSV path is missing from state.json"}), 400
 
         compound_csv_path = compound_csv if os.path.isabs(compound_csv) else os.path.join(working_directory, compound_csv)
-        print(f"📄 compound_csv path: {compound_csv_path}")
+        print(f" compound_csv path: {compound_csv_path}")
         if not os.path.exists(compound_csv_path):
             return jsonify({"error": f"Compound CSV file not found: {compound_csv_path}"}), 404
 
@@ -114,12 +114,12 @@ def generate_table():
             try:
                 mol = Chem.MolFromSmiles(smiles)
                 if mol is None:
-                    print(f"⚠️ Invalid SMILES for ID {compound.ID}")
+                    print(f" Invalid SMILES for ID {compound.ID}")
                     continue
                 neutral_mass = Descriptors.ExactMolWt(mol)
                 formula = rdMolDescriptors.CalcMolFormula(mol)
             except Exception as e:
-                print(f"⚠️ Failed to parse SMILES {smiles}: {e}")
+                print(f" Failed to parse SMILES {smiles}: {e}")
                 continue
 
             for entry in state.get("mzml_files", []):
@@ -152,11 +152,11 @@ def generate_table():
         output_path = os.path.join(working_directory, "comprehensive_table.csv")
         pd.DataFrame(output_rows).to_csv(output_path, index=False)
 
-        print(f"✅ Table saved at: {output_path}")
+        print(f" Table saved at: {output_path}")
         return jsonify({"message": "Table generated successfully", "path": output_path})
 
     except Exception as e:
-        print(f"❌ Error generating table: {e}")
+        print(f" Error generating table: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -193,7 +193,7 @@ def save_extract_config():
         return jsonify({"message": f"Saved to {config_path}"})
 
     except Exception as e:
-        print(f"❌ Error saving extract_config.yaml: {e}")
+        print(f" Error saving extract_config.yaml: {e}")
         return jsonify({"error": str(e)}), 500
     
 @app.route('/load_extraction_config', methods=['GET'])
@@ -219,20 +219,20 @@ def extract_data():
         import os, json, yaml
 
         req = request.get_json()
-        print("📥 extract_data called with:", req)
+        print(" extract_data called with:", req)
         working_dir = resolve_path(req.get("working_directory"))
         config_path = os.path.join(working_dir, "extract_config.yaml")
         state_path = os.path.join(working_dir, "state.json")
         compound_path = os.path.join(working_dir, "comprehensive_table.csv")
-        print("🔍 Looking for:")
+        print(" Looking for:")
         print(" - Config:", config_path)
         print(" - State:", state_path)
         print(" - Compounds:", compound_path)
 
         # Print file existence
-        print("📁 Config exists?", os.path.exists(config_path))
-        print("📁 State exists?", os.path.exists(state_path))
-        print("📁 Table exists?", os.path.exists(compound_path))
+        print(" Config exists?", os.path.exists(config_path))
+        print(" State exists?", os.path.exists(state_path))
+        print(" Table exists?", os.path.exists(compound_path))
 
         spectra_dir = os.path.join(working_dir, "ms2_spectra")
         os.makedirs(spectra_dir, exist_ok=True)
@@ -254,18 +254,26 @@ def extract_data():
             mzml_path = os.path.join(working_dir, file_obj["file"])
             tag = file_obj["tag"]
             adduct = file_obj["adduct"]
+            print(f"Processing file: {mzml_path} (tag={tag}, adduct={adduct})")
 
             print(f"\n📂 Processing file: {mzml_path} (tag={tag}, adduct={adduct})")
 
             exp = MSExperiment()
             MzMLFile().load(mzml_path, exp)
             spectra = exp.getSpectra()
+            print(f"Loaded {mzml_path} with {len(spectra)} total spectra", flush=True)
             ms1_spectra = [s for s in spectra if s.getMSLevel() == 1]
             ms2_spectra = [s for s in spectra if s.getMSLevel() == 2]
 
             for row in comp_df.itertuples():
-                if row.tag != tag or row.adduct != adduct:
+                row_tag = str(row.tag).strip()
+                row_adduct = str(row.adduct).strip()
+
+                if row_tag != tag or row_adduct != adduct:
+                    print(f" Skip: row({row_tag}, {row_adduct}) ≠ file({tag}, {adduct})")
                     continue
+                else:
+                    print(f" Match: ID={row.ID}, tag={row_tag}, adduct={row_adduct}")
 
                 mz = float(row.mz)
                 fine_delta = mz * fine_ppm / 1_000_000
@@ -286,6 +294,8 @@ def extract_data():
                     intensity = sum(i for m, i in zip(mzs, ints) if fine_low <= m <= fine_high)
                     eic_rt.append(rt)
                     eic_int.append(intensity)
+                
+                print(f" EIC points: {len(eic_rt)} (nonzero: {sum(1 for i in eic_int if i > 0)})")
 
                 eic_filename = f"{row.ID}_{adduct}_{tag}_EIC.csv"
                 eic_path = os.path.join(spectra_dir, eic_filename)
@@ -334,7 +344,8 @@ def extract_data():
                         "ms2_intensity": total_intensity, 
                         "peak_list": peak_list
                     })
-
+                
+                print(f" Matched MS2 spectra: {len(matched_ms2)}")
                 if matched_ms2:
                     ms2_df = pd.DataFrame(matched_ms2)
                     ms2_path = os.path.join(spectra_dir, f"{row.ID}_{adduct}_{tag}_MS2.csv")
