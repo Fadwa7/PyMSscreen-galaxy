@@ -248,10 +248,14 @@ def extract_data():
         eic_win = float(config["tolerance"]["eic"].replace(" Da", ""))
         rt_win = float(config["tolerance"]["rt"].replace(" min", ""))
 
+        error_summary = []
+
         for file_obj in state["mzml_files"]:
             mzml_path = os.path.join(working_dir, file_obj["file"])
             tag = file_obj["tag"]
             adduct = file_obj["adduct"]
+
+            print(f"\n📂 Processing file: {mzml_path} (tag={tag}, adduct={adduct})")
 
             exp = MSExperiment()
             MzMLFile().load(mzml_path, exp)
@@ -271,7 +275,14 @@ def extract_data():
                 eic_rt, eic_int = [], []
                 for sp in ms1_spectra:
                     rt = sp.getRT() / 60
-                    mzs, ints = sp.get_peaks()
+                    try:
+                       mzs, ints = sp.get_peaks()
+                    except Exception as e:
+                        msg = f"MS1 get_peaks() failed for ID={row.ID}, RT={rt:.2f} min: {e}"
+                        print(f"❌ {msg}")
+                        error_summary.append(msg)
+                        continue
+
                     intensity = sum(i for m, i in zip(mzs, ints) if fine_low <= m <= fine_high)
                     eic_rt.append(rt)
                     eic_int.append(intensity)
@@ -284,7 +295,9 @@ def extract_data():
                   eic_df.to_csv(eic_path, index=False)
                   print(f"✅ Saved EIC: {eic_filename}")
                 except Exception as e:
-                  print(f"❌ Failed to save EIC for ID={row.ID}: {e}", flush=True)   
+                  print(f"❌ Failed to save EIC for ID={row.ID}: {e}", flush=True)  
+                  print(f"❌ {msg}")
+                  error_summary.append(msg) 
                 
                 # MS2 fragment + RT
                 matched_ms2 = []
@@ -296,7 +309,13 @@ def extract_data():
                     if abs(p_mz - mz) > coarse_win:
                         continue
 
-                    ms2_mzs, ms2_ints = sp.get_peaks()
+                    try:
+                        ms2_mzs, ms2_ints = sp.get_peaks()
+                    except Exception as e:
+                         msg = f"MS2 get_peaks() failed for ID={row.ID}, precursor_mz={p_mz:.4f}: {e}"
+                         print(f"❌ {msg}")
+                         error_summary.append(msg)
+                         continue
                     if len(ms2_mzs) == 0:
                         continue
 
@@ -319,7 +338,13 @@ def extract_data():
                 if matched_ms2:
                     ms2_df = pd.DataFrame(matched_ms2)
                     ms2_path = os.path.join(spectra_dir, f"{row.ID}_{adduct}_{tag}_MS2.csv")
-                    ms2_df.to_csv(ms2_path, index=False)
+                    try:
+                        ms2_df.to_csv(ms2_path, index=False)
+                        print(f"✅ Saved MS2: {os.path.basename(ms2_path)}")
+                    except Exception as e:
+                        msg = f"Failed to save MS2 for ID={row.ID}: {e}"
+                        print(f"❌ {msg}")
+                        error_summary.append(msg)
 
         return jsonify({"status": "success", "message": "Extraction complete"})
 
