@@ -107,6 +107,67 @@ const handleHighRes = (smiles, compoundName) => {
   `);
 };
 
+function movingAverage(arr, window = 5) {
+if (window < 2) return arr.slice();
+const half = Math.floor(window / 2);
+const out = new Array(arr.length).fill(0);
+for (let i = 0; i < arr.length; i++) {
+const start = Math.max(0, i - half);
+const end = Math.min(arr.length - 1, i + half);
+let sum = 0;
+let count = 0;
+for (let j = start; j <= end; j++) {
+sum += arr[j];
+count++;
+}
+out[i] = sum / count;
+}
+return out;
+}
+
+
+function findTopPeaks(rtArr, intArr, {
+n = 3,
+minSeparation = 0.15,
+prominenceFrac = 0.05,
+minWidthPoints = 3,
+} = {}) {
+if (!rtArr?.length || rtArr.length !== intArr.length) return [];
+const sm = movingAverage(intArr, 5);
+const maxI = Math.max(...sm);
+if (!isFinite(maxI) || maxI <= 0) return [];
+const minProm = maxI * prominenceFrac;
+
+
+const candidates = [];
+for (let i = 1; i < sm.length - 1; i++) {
+if (sm[i] > sm[i - 1] && sm[i] >= sm[i + 1]) {
+let l = i - 1;
+while (l > 0 && sm[l] < sm[l + 1]) l--;
+let r = i + 1;
+while (r < sm.length - 1 && sm[r] < sm[r - 1]) r++;
+const width = r - l;
+if (width < minWidthPoints) continue;
+const baseline = Math.max(Math.min(sm[l], sm[r]), 1e-12);
+const prom = sm[i] - baseline;
+if (prom >= minProm) {
+candidates.push({ idx: i, rt: Number(rtArr[i]), intensity: intArr[i], smVal: sm[i], prom });
+}
+}
+}
+
+
+candidates.sort((a, b) => b.intensity - a.intensity);
+const picked = [];
+for (const c of candidates) {
+if (picked.every((p) => Math.abs(p.rt - c.rt) >= minSeparation)) {
+picked.push(c);
+if (picked.length === n) break;
+}
+}
+return picked.map(({ rt, intensity, idx }) => ({ rt, intensity, idx }));
+}
+
 const CompoundPlot = ({ compoundGroup, onExportReady }) => {
   const handleExportSummary = async () => {
     console.log("🚀 Calling exportSummaryPDF with:", compoundGroup, appState.working_directory);
@@ -158,80 +219,111 @@ const CompoundPlot = ({ compoundGroup, onExportReady }) => {
         const ms1Data = await loadCSV(compoundId, 'EIC', tag, adduct, appState.working_directory);
         const ms2Data = await loadCSV(compoundId, 'MS2', tag, adduct, appState.working_directory);
 
-        let ms1RT = 'N/A';
+        // let ms1RT = 'N/A';
         if (ms1Data.length) {
-          const maxMS1 = ms1Data.reduce((a, b) => parseFloat(a.intensity) > parseFloat(b.intensity) ? a : b);
-          ms1RT = parseFloat(maxMS1.rt);
-          const intensities = ms1Data.map(row => parseFloat(row.intensity));
+          const rts = ms1Data.map((row) => parseFloat(row.rt));
+          const intensities = ms1Data.map((row) => parseFloat(row.intensity));
+          const eicSmooth = movingAverage(intensities, 7);
           maxMS1Y = Math.max(maxMS1Y, ...intensities);
 
-          data.push({
-            x: ms1Data.map(row => parseFloat(row.rt)),
-            y: intensities,
-            mode: 'lines',
-            name: `MS1 | ${tag} | RT: ${ms1RT.toFixed(2)} | ${adduct} | ${compoundId}`,
-            xaxis: 'x1',
-            yaxis: 'y1',
-            showlegend: true
+          const topPeaks = findTopPeaks(rts, intensities, {
+            n: 3,
+            minSeparation: 0.15,
+            prominenceFrac: 0.05,
+            minWidthPoints: 3,
           });
-        }
-
-        if (ms2Data.length && ms1RT !== 'N/A') {
-          const candidates = ms2Data.filter(m => Math.abs(parseFloat(m.ms2_rt) - ms1RT) <= retTimeShiftTol);
-          if (candidates.length) {
-            const closestMS2 = candidates.reduce((a, b) => (
-              Math.abs(parseFloat(a.ms2_rt) - ms1RT) < Math.abs(parseFloat(b.ms2_rt) - ms1RT) ? a : b
-            ));
 
           const identifier = `${tag}_${adduct}`;
           const color = colors[uniqueIds.indexOf(identifier)];
 
-          data.push({
-            x: [parseFloat(closestMS2.ms2_rt), parseFloat(closestMS2.ms2_rt)],
-            y: useRelative ? [0, 1050] : [0, maxMS1Y * 1.1],
-            mode: 'lines',
-            name: `MS2 Peak | ${tag} | RT: ${parseFloat(closestMS2.ms2_rt).toFixed(2)} | ${adduct} | ${compoundId}`,
-            line: { dash: 'dash', color: color, width: 2 },
-            xaxis: 'x2',
-            yaxis: 'y2',
-            showlegend: true
-          });
+          topPeaks.forEach((pk, i) => {
+            const lg = `peak-${compoundId}-${i + 1}`;
+            const rtStr = isFinite(pk.rt) ? pk.rt.toFixed(2) : 'N/A';
+            const intStr = isFinite(pk.intensity) ? pk.intensity.toExponential(2) : 'N/A';
 
-          const peaks = parsePeakList(closestMS2.peak_list);
-          if (peaks.length) {
-            const maxY = Math.max(...peaks.map(p => p.y));
-            maxFragmentY = useRelative ? 1050 : Math.max(maxFragmentY, maxY);
-
-          peaks.forEach(p => {
-            const yVal = useRelative ? p.y / maxY * 1050 : p.y;
+          // Full EIC trace inside peak group
+          
             data.push({
-              x: [p.x, p.x],
-              y: [0, yVal],
+              x: rts,
+              y: intensities,
               mode: 'lines',
-              type: 'scatter',
-              line: { width: 2 },
-              name: `Frag | ${tag} | ${compoundId}`,
+              name: `MS1 | ${tag} | RT: ${rtStr} | ${adduct} | ${compoundId} | I: ${intStr}`,
+              xaxis: 'x1',
+              yaxis: 'y1',
               showlegend: false,
-              xaxis: 'x3',
-              yaxis: 'y3'
+              legendgroup: lg,
+              visible: i === 0 ? true : 'legendonly',
+              line: { shape: 'spline', width: 2, color },
+              fill: 'tozeroy',
+              fillcolor: chroma(color).alpha(0.18).css(),
             });
-          });
 
-          data.push({
-            x: [],
-            y: [],
-            mode: 'lines',
-            type: 'scatter',
-            name: `Fragments | ${compoundId}`,
-            line: { color: 'transparent' },
-            showlegend: true,
-            xaxis: 'x3',
-            yaxis: 'y3'
-          });
-         }
-        }
-       }
+            // Peak marker in EIC
+            data.push({
+              x: [pk.rt],
+              y: [pk.intensity],
+              mode: 'markers',
+              marker: { size: 10, symbol: 'x' },
+              name: `MS1 | ${tag} | RT: ${rtStr} | ${adduct} | ${compoundId} | I: ${intStr}`,
+              legendgroup: lg,
+              xaxis: 'x1',
+              yaxis: 'y1',
+              showlegend: true,
+              visible: i === 0 ? true : 'legendonly',
+            });
+
+            if (ms2Data.length) {
+              const candidates = ms2Data
+                .map((m) => ({ ...m, rt: parseFloat(m.ms2_rt) }))
+                .filter((m) => isFinite(m.rt) && Math.abs(m.rt - pk.rt) <= retTimeShiftTol);
+
+
+            if (candidates.length) {
+              const closest = candidates.reduce((a, b) =>
+                Math.abs(a.rt - pk.rt) < Math.abs(b.rt - pk.rt) ? a : b
+              );
+
+
+              data.push({
+                x: [closest.rt, closest.rt],
+                y: useRelative ? [0, 1050] : [0, maxMS1Y * 1.1],
+                mode: 'lines',
+                name: `MS2 Peak | ${tag} | RT: ${closest.rt.toFixed(2)} | ${adduct} | ${compoundId}`,
+                line: { dash: 'dash', color, width: 2 },
+                xaxis: 'x2',
+                yaxis: 'y2',
+                showlegend: true,
+                legendgroup: lg,
+                visible: i === 0 ? true : 'legendonly',
+              });
+
+
+              const peaks = parsePeakList(closest.peak_list || '');
+              if (peaks.length) {
+                const maxY = Math.max(...peaks.map((p) => p.y));
+                maxFragmentY = useRelative ? 1050 : Math.max(maxFragmentY, maxY);
+                peaks.forEach((p) => {
+                  const yVal = useRelative ? (p.y / maxY) * 1050 : p.y;
+                  data.push({
+                    x: [p.x, p.x],
+                    y: [0, yVal],
+                    mode: 'lines',
+                    type: 'scatter',
+                    line: { width: 2 },
+                    name: `Fragment | ${tag} | ${compoundId}`,
+                    showlegend: false,
+                    xaxis: 'x3',
+                    yaxis: 'y3',
+                    legendgroup: lg,
+                    visible: i === 0 ? true : 'legendonly',
+                  });
+                });
+              }
+            }
+          }
+        });
       }
+    }
 
       const layout = {
         height: 1200,
