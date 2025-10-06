@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Select from 'react-select';
 import axios from 'axios';
 import { useAppState } from '../context/AppStateContext';
@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom';
 
 const PlottingPage = () => {
   const { appState } = useAppState();
+  const selectedIdRef = useRef(null);
   const [compounds, setCompounds] = useState([]);
   const navigate = useNavigate();
   const [summaryData, setSummaryData] = useState([]);
@@ -78,20 +79,33 @@ const PlottingPage = () => {
       }
     });
     const result = Object.entries(grouped).map(([id, group]) => ({ id, group }));
+
     setGroupedByID(result);
+    const prevSelectedId = selectedIdRef.current || (compoundOptions[currentIndex]?.value);
     setCompoundOptions(result.map(entry => {
       const first = entry.group[0];
-      const isKnown = first.known === 'known';
-      const label = isKnown
-        ? `${first.ID} - ${first.Name || first.ID}` // Known: show ID and Name
-        : `${first.ID} - ${parseFloat(first.mz).toFixed(4)}`
+      const structureRow = entry.group.find(r => {
+        const k = (r.known ?? '').toString().trim().toLowerCase();
+        const hasName = r.Name && String(r.Name).trim().length > 0;
+        return k === 'structure' && hasName;
+      });
+      const label =  structureRow
+        ? `${entry.id} - ${String(structureRow.Name).trim()}`
+        : `${entry.id} - ${Number(first?.mz ?? 0).toFixed(4)}`;
       return {
         value: entry.id,
         label
       };
     }));
+
+    let newIndex = 0;
+    if (prevSelectedId) {
+      const idx = result.findIndex(e => e.id.toString() === prevSelectedId.toString());
+      if (idx !== -1) newIndex = idx;
+    }
    
-    setCurrentIndex(0);
+    setCurrentIndex(newIndex);
+     selectedIdRef.current = result[newIndex]?.id?.toString() || null;
   }, [compounds, selectedTags, selectedAdducts]);
 
   const extractUnique = (data, field) => {
@@ -127,6 +141,7 @@ const PlottingPage = () => {
     const selected = groupedByID.find(entry => entry.id === compoundOptions[currentIndex]?.value);
     if (selected) {
       setSelectedGroup(selected.group);
+      selectedIdRef.current = selected.id.toString();
       const flags = {};
       selected.group.forEach(row => {
         const key = `${row.ID}_${row.adduct}_${row.tag}`;
@@ -310,7 +325,10 @@ const handleExportPeakList = async () => {
             value={compoundOptions[currentIndex] || null}
             onChange={(selected) => {
               const index = compoundOptions.findIndex(opt => opt.value === selected.value);
-              if (index !== -1) setCurrentIndex(index);
+              if (index !== -1) {
+              setCurrentIndex(index);
+              selectedIdRef.current = selected.value;
+              }
             }}
           />
           {/* Toast Message */}

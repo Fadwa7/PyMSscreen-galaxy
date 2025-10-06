@@ -8,9 +8,11 @@ import numpy as np
 import yaml
 from rdkit import Chem
 from rdkit.Chem import Descriptors, rdMolDescriptors
+from app.routes.pdf_export import register_pdf_export
 
 
 app = Flask(__name__)
+register_pdf_export(app)
 app.secret_key = 'supersecretkey'
 CORS(app, supports_credentials=True, origins="*")
 
@@ -36,7 +38,7 @@ def resolve_path(p):
 def save_state():
     try:
         data = request.get_json()
-        print("📥 Save request data:", data)
+        print(" Save request data:", data)
         working_directory = os.path.expanduser(data.get("working_directory", "."))
 
         if not os.path.exists(working_directory):
@@ -86,10 +88,10 @@ def generate_table():
     try:
         body = request.get_json(force=True)
         working_directory = resolve_path(body.get("workingDirectory", ""))
-        print(f"📁 Working directory: {working_directory}")
+        print(f"Working directory: {working_directory}")
 
         state_path = os.path.join(working_directory, "state.json")
-        print(f"📄 Looking for state at: {state_path}")
+        print(f"Looking for state at: {state_path}")
         if not os.path.exists(state_path):
             return jsonify({"error": f"State file not found at {state_path}"}), 404
 
@@ -129,7 +131,7 @@ def generate_table():
 
                 adduct_mass = ADDUCT_MASS.get(adduct)
                 if adduct_mass is None:
-                    print(f"⚠️ Unknown adduct '{adduct}' for file {mzml_filename}")
+                    print(f" Unknown adduct '{adduct}' for file {mzml_filename}")
                     continue
 
                 mz = neutral_mass + adduct_mass
@@ -165,7 +167,7 @@ def save_extract_config():
     try:
         data = request.get_json()
         working_directory = resolve_path(data.get("working_directory", "."))
-        print("🛠 Saving extraction config to:", working_directory)
+        print("Saving extraction config to:", working_directory)
 
         if not os.path.isdir(working_directory):
             return jsonify({"error": f"Working directory not found: {working_directory}"}), 400
@@ -256,7 +258,7 @@ def extract_data():
             adduct = file_obj["adduct"]
             print(f"Processing file: {mzml_path} (tag={tag}, adduct={adduct})")
 
-            print(f"\n📂 Processing file: {mzml_path} (tag={tag}, adduct={adduct})")
+            print(f"\n Processing file: {mzml_path} (tag={tag}, adduct={adduct})")
 
             exp = MSExperiment()
             MzMLFile().load(mzml_path, exp)
@@ -287,7 +289,7 @@ def extract_data():
                        mzs, ints = sp.get_peaks()
                     except Exception as e:
                         msg = f"MS1 get_peaks() failed for ID={row.ID}, RT={rt:.2f} min: {e}"
-                        print(f"❌ {msg}")
+                        print(f" {msg}")
                         error_summary.append(msg)
                         continue
 
@@ -303,10 +305,10 @@ def extract_data():
 
                 try:
                   eic_df.to_csv(eic_path, index=False)
-                  print(f"✅ Saved EIC: {eic_filename}")
+                  print(f"Saved EIC: {eic_filename}")
                 except Exception as e:
-                  print(f"❌ Failed to save EIC for ID={row.ID}: {e}", flush=True)  
-                  print(f"❌ {msg}")
+                  print(f"Failed to save EIC for ID={row.ID}: {e}", flush=True)  
+                  print(f" {msg}")
                   error_summary.append(msg) 
                 
                 # MS2 fragment + RT
@@ -323,7 +325,7 @@ def extract_data():
                         ms2_mzs, ms2_ints = sp.get_peaks()
                     except Exception as e:
                          msg = f"MS2 get_peaks() failed for ID={row.ID}, precursor_mz={p_mz:.4f}: {e}"
-                         print(f"❌ {msg}")
+                         print(f"{msg}")
                          error_summary.append(msg)
                          continue
                     if len(ms2_mzs) == 0:
@@ -351,17 +353,17 @@ def extract_data():
                     ms2_path = os.path.join(spectra_dir, f"{row.ID}_{adduct}_{tag}_MS2.csv")
                     try:
                         ms2_df.to_csv(ms2_path, index=False)
-                        print(f"✅ Saved MS2: {os.path.basename(ms2_path)}")
+                        print(f"Saved MS2: {os.path.basename(ms2_path)}")
                     except Exception as e:
                         msg = f"Failed to save MS2 for ID={row.ID}: {e}"
-                        print(f"❌ {msg}")
+                        print(f"{msg}")
                         error_summary.append(msg)
 
         return jsonify({"status": "success", "message": "Extraction complete"})
 
     except Exception as e:
      import traceback
-     print("❌ Error in /extract_data:", e)
+     print(" Error in /extract_data:", e)
      traceback.print_exc()
      return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -505,11 +507,11 @@ def load_comprehensive_table():
     try:
         working_directory = os.path.expanduser(request.args.get("working_directory", "."))
         table_path = os.path.join(working_directory, "comprehensive_table.csv")
-        print("📁 Requested path:", request.args.get("working_directory"))
-        print("📂 Resolved path:", table_path)
+        print("Requested path:", request.args.get("working_directory"))
+        print(" Resolved path:", table_path)
 
         if not os.path.exists(table_path):
-            print("❌ File not found at resolved path!")
+            print("File not found at resolved path!")
             return jsonify([])  # return empty list
 
         df = pd.read_csv(table_path)
@@ -559,8 +561,8 @@ def save_qa_flags():
             mask = (df["ID"].astype(str) == str(compound_id)) & \
                    (df["adduct"] == adduct) & (df["tag"] == tag)
 
-            print(f"🛠 Updating row for ID={compound_id}, adduct={adduct}, tag={tag}")
-            print("➡️  Incoming flags:", update)
+            print(f"Updating row for ID={compound_id}, adduct={adduct}, tag={tag}")
+            print(" Incoming flags:", update)
 
             for display_key, summary_key in {
                 "MS1_Exists": "qa_ms1_exists",
@@ -573,7 +575,7 @@ def save_qa_flags():
                     value = bool(update[display_key])
                     for idx in df[mask].index:
                         df.at[idx, summary_key] = value
-                        print(f"🔄 Set {summary_key} at row {idx} = {value}")
+                        print(f" Set {summary_key} at row {idx} = {value}")
 
             for idx in df[mask].index:
                 all_flags = [
@@ -586,9 +588,9 @@ def save_qa_flags():
                 ]
                 result = all(all_flags)
                 df.at[idx, "qa_pass"] = result
-                print(f"✅ qa_pass for row {idx} = {result}")
+                print(f"qa_pass for row {idx} = {result}")
 
-        # 🔄 Ensure booleans are saved correctly
+        # Ensure booleans are saved correctly
         for col in [
             "qa_ms1_exists", "qa_ms1_good_int", "qa_ms1_above_noise",
             "qa_ms2_exists", "qa_ms2_good_int", "qa_ms2_near",
@@ -597,14 +599,14 @@ def save_qa_flags():
             if col in df.columns:
                 df[col] = df[col].astype(bool)
 
-        print(f"💾 Writing updated summary table to: {table_path}")
+        print(f"Writing updated summary table to: {table_path}")
         df.to_csv(table_path, index=False)
-        print("✅ Save completed.")
+        print(" Save completed.")
 
         return jsonify({"message": f"QA flags updated in {table_path}"})
 
     except Exception as e:
-        print(f"❌ Error saving flags: {e}")
+        print(f"Error saving flags: {e}")
         return jsonify({"error": str(e)}), 500
 
 
