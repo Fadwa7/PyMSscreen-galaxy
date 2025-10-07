@@ -280,7 +280,7 @@ const CompoundPlot = ({ compoundGroup, onExportReady }) => {
         const { ID, tag, adduct } = compound;
         const color = getTagColor(tag, uniqueTags);
         const tagIdx = uniqueTags.indexOf(tag);
-        const dash = publicationMode ? getTagDash(tagIdx) : 'solid';
+        const dash = 'solid';
         const markerSymbol = publicationMode ? getTagMarker(tagIdx) : 'x';
         const compoundId = ID;
 
