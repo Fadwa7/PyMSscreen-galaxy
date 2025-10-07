@@ -8,6 +8,65 @@ import { exportSummaryPDF } from '../api/api';
 import { saveQAFlags } from '../api/api';
 import { useNavigate } from 'react-router-dom';
 
+function PlottingHelpPanel() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-controls="plotting-help"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '6px 10px',
+          fontSize: 12,
+          fontWeight: 600,
+          borderRadius: 6,
+          border: '1px solid #cbd5e1',
+          background: '#eef2ff',
+          color: '#1f2937',
+          cursor: 'pointer'
+        }}
+        title={open ? 'Hide help' : 'Show help'}
+      >
+        ℹ️ Plotting Help
+        <span style={{ marginLeft: 4, fontSize: 10 }}>{open ? '▾' : '▸'}</span>
+      </button>
+
+      {open && (
+        <div
+          id="plotting-help"
+          role="region"
+          aria-label="Plotting page help"
+          style={{
+            marginTop: 8,
+            padding: 10,
+            border: '1px solid #e5e7eb',
+            borderRadius: 8,
+            background: '#ffffff',
+            fontSize: 12,
+            lineHeight: 1.45,
+            color: '#374151'
+          }}
+        >
+          <ul style={{ paddingLeft: 18, margin: 0 }}>
+            <li><strong>Default grouping:</strong> grouped by all tags & adducts; use filters to change.</li>
+            <li style={{ marginTop: 6 }}><strong>Top EICs:</strong> top 3 most intense EICs; double-click legend to isolate; corresponding MS2 peak shows if present.</li>
+            <li style={{ marginTop: 6 }}><strong>Relative intensity:</strong> toggles fragment/MS2 axes between relative and absolute.</li>
+            <li style={{ marginTop: 6 }}><strong>Greyscale fragments:</strong> MS2 fragments in greyscale.</li>
+            <li style={{ marginTop: 6 }}><strong>EIC colour fill:</strong> fills the EIC peak area.</li>
+            <li style={{ marginTop: 6 }}><strong>Publication mode:</strong> report-friendly styles + SVG/PNG download from the toolbar.</li>
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 const PlottingPage = () => {
   const { appState } = useAppState();
   const selectedIdRef = useRef(null);
@@ -307,11 +366,44 @@ const handleExportPeakList = async () => {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: '12px', backgroundColor: '#f2f2f2', fontWeight: 'bold', fontSize: '18px', textAlign: 'center' }}>
-        pyMSscreen Visualization Dashboard
+         pyMSscreen Visualization Dashboard
       </div>
+      
+      {/* Plotting Help (collapsible) */}
+      <div style={{ padding: '8px 16px', textAlign: 'center', maxWidth: '90%', margin: '0 auto' }}>
+        <details style={{ background: '#f0faff', padding: 10, borderRadius: 8, border: '1px solid #cceeff' }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>
+            ℹ️ Plotting Page info
+          </summary>
+          <ul style={{ paddingLeft: 20, marginTop: 10, textAlign: 'left' }}>
+            <li><strong>Default grouping:</strong> plots are grouped by <em>all</em> tags and adducts. Use Tag/Adduct filters to change the grouping.</li>
+            <li><strong>Top EICs:</strong> the top <em>3 most intense</em> EIC traces are shown. Double-click a legend item to isolate its trace. Selecting the corresponding legend shows the <em>MS2 peak</em> line (if present).</li>
+            <li><strong>Relative intensity:</strong> toggles MS2/fragment axes between relative and absolute scales.</li>
+            <li><strong>Greyscale fragments:</strong> renders MS2 fragment sticks in greyscale.</li>
+            <li><strong>EIC colour fill:</strong> fills the EIC peak under the line.</li>
+            <li><strong>Publication mode:</strong> report-friendly styles; use the plot toolbar to download <em>SVG</em> or <em>PNG</em>.</li>
+          </ul>
+        </details>
+      </div>
+        
       <div style={{ display: 'flex', flex: 1 }}>
         <div style={{ width: '340px', padding: '16px', overflow: 'auto', background: '#f9f9f9', borderRight: '2px solid #ccc', display: 'flex', flexDirection: 'column' }}>
           <h3 style={{ textAlign: 'center' }}>Settings Pane</h3>
+
+      {/* Settings Pane Help (collapsible) */}
+      <div style={{ margin: '8px 0' }}>
+        <details style={{ background: '#ecfeff', padding: 10, borderRadius: 8, border: '1px solid #bae6fd' }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>
+             Settings Pane info
+          </summary>
+          <ul style={{ paddingLeft: 20, marginTop: 10 }}>
+            <li><strong>Filter by Tag/Adduct:</strong> narrow the plotted group. Clearing filters returns to the full group.</li>
+            <li><strong>Save Plot:</strong> saves the current compound’s combined plot (format choice via the plot toolbar, not this button).</li>
+            <li><strong>Export Summary PDF:</strong> creates a quick visual overview of <em>all</em> grouped compounds.</li>
+            <li><strong>Export Peak List:</strong> enabled when exactly one Tag is selected; copies MS2 peaks for tools like <em>MetFrag</em>.</li>
+          </ul>
+        </details>
+      </div>
 
           <label>Filter by Tag:</label>
           <Select isMulti options={tagOptions} onChange={setSelectedTags} />
