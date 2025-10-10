@@ -8,13 +8,54 @@ import numpy as np
 import yaml
 from rdkit import Chem
 from rdkit.Chem import Descriptors, rdMolDescriptors
+from multiprocessing import Process
+import uuid
+import requests
+from typing import Tuple, Any
 from app.routes.pdf_export import register_pdf_export
-
+from app.jobs.job_store import create_job, update_job, load_status
 
 app = Flask(__name__)
 register_pdf_export(app)
 app.secret_key = 'supersecretkey'
 CORS(app, supports_credentials=True, origins="*")
+
+@app.after_request
+def _no_cache(resp):
+    resp.headers["Cache-Control"] = "no-store, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
+    
+@app.errorhandler(500)
+def handle_500(e):
+    return jsonify({"status": "error", "message": "Internal Server Error"}), 500
+
+def _parse_json_safely(resp, step_name: str):
+    status = getattr(resp, "status_code", None)
+    try:
+        payload = resp.json()
+    except Exception:
+        body = (getattr(resp, "text", "") or "").strip()
+        snippet = body[:400].replace("\n", "\\n")
+        return False, f"{step_name} returned non-JSON (HTTP {status}). Body starts with: {snippet or '<empty>'}"
+
+    if status != 200:
+        return False, f"{step_name} failed (HTTP {status}): {payload}"
+
+    # require an explicit success
+    if not isinstance(payload, dict) or payload.get("status") != "success":
+        return False, f"{step_name} returned unexpected payload: {payload!r}"
+
+    return True, payload
+
+def _post_and_check(step_name: str, url: str, payload: dict) -> Tuple[bool, Any]:
+    import requests
+    try:
+        resp = requests.post(url, json=payload, timeout=None)
+    except requests.RequestException as e:
+        return False, f"{step_name} request error: {e}"
+    return _parse_json_safely(resp, step_name)
 
 ADDUCT_MASS = {
     "[M+H]+": 1.007276,
@@ -212,29 +253,15 @@ def load_extraction_config():
         print(f"Error loading extract_config.yaml: {e}")
         return jsonify({'ret_time_shift_tol': 0.5})
 
-
-@app.route("/extract_data", methods=["POST"])
-def extract_data():
+def _extract_data_impl(working_dir, job_id=None) -> dict:
     try:
+        import os, json, yaml
         import pandas as pd
         from pyopenms import MSExperiment, MzMLFile
-        import os, json, yaml
 
-        req = request.get_json()
-        print(" extract_data called with:", req)
-        working_dir = resolve_path(req.get("working_directory"))
-        config_path = os.path.join(working_dir, "extract_config.yaml")
-        state_path = os.path.join(working_dir, "state.json")
+        config_path   = os.path.join(working_dir, "extract_config.yaml")
+        state_path    = os.path.join(working_dir, "state.json")
         compound_path = os.path.join(working_dir, "comprehensive_table.csv")
-        print(" Looking for:")
-        print(" - Config:", config_path)
-        print(" - State:", state_path)
-        print(" - Compounds:", compound_path)
-
-        # Print file existence
-        print(" Config exists?", os.path.exists(config_path))
-        print(" State exists?", os.path.exists(state_path))
-        print(" Table exists?", os.path.exists(compound_path))
 
         spectra_dir = os.path.join(working_dir, "ms2_spectra")
         os.makedirs(spectra_dir, exist_ok=True)
@@ -246,72 +273,57 @@ def extract_data():
         comp_df = pd.read_csv(compound_path)
 
         coarse_win = float(config["tolerance"]["ms1 coarse"].replace(" Da", ""))
-        fine_ppm = float(config["tolerance"]["ms1 fine"].replace(" ppm", ""))
-        eic_win = float(config["tolerance"]["eic"].replace(" Da", ""))
-        rt_win = float(config["tolerance"]["rt"].replace(" min", ""))
+        fine_ppm   = float(config["tolerance"]["ms1 fine"].replace(" ppm", ""))
 
+        files = state.get("mzml_files", [])
+        total = max(1, len(files))
+        done  = 0
         error_summary = []
 
-        for file_obj in state["mzml_files"]:
-            mzml_path = os.path.join(working_dir, file_obj["file"])
-            tag = file_obj["tag"]
-            adduct = file_obj["adduct"]
-            print(f"Processing file: {mzml_path} (tag={tag}, adduct={adduct})")
-
-            print(f"\n Processing file: {mzml_path} (tag={tag}, adduct={adduct})")
+        for file_obj in files:
+            f = file_obj["file"]
+            mzml_path = f if os.path.isabs(f) else os.path.join(working_dir, f)  # avoid double-join
+            tag    = str(file_obj["tag"]).strip()
+            adduct = str(file_obj["adduct"]).strip()
 
             exp = MSExperiment()
             MzMLFile().load(mzml_path, exp)
-            spectra = exp.getSpectra()
-            print(f"Loaded {mzml_path} with {len(spectra)} total spectra", flush=True)
+            spectra     = exp.getSpectra()
             ms1_spectra = [s for s in spectra if s.getMSLevel() == 1]
             ms2_spectra = [s for s in spectra if s.getMSLevel() == 2]
 
             for row in comp_df.itertuples():
-                row_tag = str(row.tag).strip()
+                row_tag    = str(row.tag).strip()
                 row_adduct = str(row.adduct).strip()
-
                 if row_tag != tag or row_adduct != adduct:
-                    print(f" Skip: row({row_tag}, {row_adduct}) ≠ file({tag}, {adduct})")
                     continue
-                else:
-                    print(f" Match: ID={row.ID}, tag={row_tag}, adduct={row_adduct}")
 
                 mz = float(row.mz)
                 fine_delta = mz * fine_ppm / 1_000_000
-                fine_low, fine_high = mz - fine_delta, mz + fine_delta
+                low, high  = mz - fine_delta, mz + fine_delta
 
                 # MS1 EIC
                 eic_rt, eic_int = [], []
                 for sp in ms1_spectra:
-                    rt = sp.getRT() / 60
+                    rt = sp.getRT() / 60.0
                     try:
-                       mzs, ints = sp.get_peaks()
+                        mzs, ints = sp.get_peaks()
                     except Exception as e:
                         msg = f"MS1 get_peaks() failed for ID={row.ID}, RT={rt:.2f} min: {e}"
-                        print(f" {msg}")
                         error_summary.append(msg)
                         continue
+                    intensity = sum(i for m, i in zip(mzs, ints) if low <= m <= high)
+                    eic_rt.append(rt); eic_int.append(intensity)
 
-                    intensity = sum(i for m, i in zip(mzs, ints) if fine_low <= m <= fine_high)
-                    eic_rt.append(rt)
-                    eic_int.append(intensity)
-                
-                print(f" EIC points: {len(eic_rt)} (nonzero: {sum(1 for i in eic_int if i > 0)})")
-
-                eic_filename = f"{row.ID}_{adduct}_{tag}_EIC.csv"
-                eic_path = os.path.join(spectra_dir, eic_filename)
-                eic_df = pd.DataFrame({"rt": eic_rt, "intensity": eic_int})
-
+                eic_df   = pd.DataFrame({"rt": eic_rt, "intensity": eic_int})
+                eic_path = os.path.join(spectra_dir, f"{row.ID}_{adduct}_{tag}_EIC.csv")
                 try:
-                  eic_df.to_csv(eic_path, index=False)
-                  print(f"Saved EIC: {eic_filename}")
+                    eic_df.to_csv(eic_path, index=False)
                 except Exception as e:
-                  print(f"Failed to save EIC for ID={row.ID}: {e}", flush=True)  
-                  print(f" {msg}")
-                  error_summary.append(msg) 
-                
-                # MS2 fragment + RT
+                    err = f"Failed to save EIC for ID={row.ID}: {e}"
+                    error_summary.append(err)
+
+                # MS2
                 matched_ms2 = []
                 for sp in ms2_spectra:
                     precursors = sp.getPrecursors()
@@ -320,114 +332,87 @@ def extract_data():
                     p_mz = precursors[0].getMZ()
                     if abs(p_mz - mz) > coarse_win:
                         continue
-
                     try:
                         ms2_mzs, ms2_ints = sp.get_peaks()
                     except Exception as e:
-                         msg = f"MS2 get_peaks() failed for ID={row.ID}, precursor_mz={p_mz:.4f}: {e}"
-                         print(f"{msg}")
-                         error_summary.append(msg)
-                         continue
+                        msg = f"MS2 get_peaks() failed for ID={row.ID}, precursor_mz={p_mz:.4f}: {e}"
+                        error_summary.append(msg); continue
                     if len(ms2_mzs) == 0:
                         continue
-
-                    peak_list = ";".join(
-                        f"{mz_val:.4f}:{int_val:.0f}"
-                        for mz_val, int_val in zip(ms2_mzs, ms2_ints)
-                    )
-
-                    scan_id = sp.getNativeID() or f"scan_{len(matched_ms2)+1}"
-                    ms2_rt = sp.getRT() / 60.0
-                    total_intensity = sum(ms2_ints)
-
+                    peak_list = ";".join(f"{mzv:.4f}:{intv:.0f}" for mzv, intv in zip(ms2_mzs, ms2_ints))
                     matched_ms2.append({
-                        "scan_id": scan_id,
-                        "ms2_rt": ms2_rt,
-                        "ms2_intensity": total_intensity, 
-                        "peak_list": peak_list
+                        "scan_id":       sp.getNativeID() or f"scan_{len(matched_ms2)+1}",
+                        "ms2_rt":        sp.getRT() / 60.0,
+                        "ms2_intensity": sum(ms2_ints),
+                        "peak_list":     peak_list
                     })
-                
-                print(f" Matched MS2 spectra: {len(matched_ms2)}")
                 if matched_ms2:
-                    ms2_df = pd.DataFrame(matched_ms2)
+                    ms2_df   = pd.DataFrame(matched_ms2)
                     ms2_path = os.path.join(spectra_dir, f"{row.ID}_{adduct}_{tag}_MS2.csv")
                     try:
                         ms2_df.to_csv(ms2_path, index=False)
-                        print(f"Saved MS2: {os.path.basename(ms2_path)}")
                     except Exception as e:
                         msg = f"Failed to save MS2 for ID={row.ID}: {e}"
-                        print(f"{msg}")
                         error_summary.append(msg)
 
-        return jsonify({"status": "success", "message": "Extraction complete"})
+            # progress 5 → 60
+            done += 1
+            if job_id:
+                prog = 5 + int(55 * done / total)
+                update_job(working_dir, job_id, progress=prog, message=f"Extraction {done}/{total}…")
 
+        return {"status": "success", "errors": error_summary}
     except Exception as e:
-     import traceback
-     print(" Error in /extract_data:", e)
-     traceback.print_exc()
-     return jsonify({"status": "error", "message": str(e)}), 500
+        return {"status": "error", "message": str(e)}
 
-@app.route("/prescreen_data", methods=["POST"])
-def prescreen_data():
+def _prescreen_impl(working_dir, job_id=None) -> dict:
     try:
+        import os, yaml
         import pandas as pd
-        import os, json, yaml
 
-        req = request.get_json()
-        working_directory = resolve_path(req.get("working_directory"))
-
-        config_path = os.path.join(working_directory, "extract_config.yaml")
-        compound_path = os.path.join(working_directory, "comprehensive_table.csv")
-        spectra_dir = os.path.join(working_directory, "ms2_spectra")
+        config_path   = os.path.join(working_dir, "extract_config.yaml")
+        compound_path = os.path.join(working_dir, "comprehensive_table.csv")
+        spectra_dir   = os.path.join(working_dir, "ms2_spectra")
 
         with open(config_path, "r") as f:
             config = yaml.safe_load(f)
 
         ms1_thresh = config["prescreen"]["ms1_int_thresh"]
         ms2_thresh = config["prescreen"]["ms2_int_thresh"]
-        s2n = config["prescreen"]["s2n"]
-        rt_tol = float(str(config["prescreen"]["ret_time_shift_tol"]).replace(" min", ""))
+        s2n        = config["prescreen"]["s2n"]
+        rt_tol     = float(str(config["prescreen"]["ret_time_shift_tol"]).replace(" min", ""))
 
-        compound_df = pd.read_csv(compound_path)
+        compound_df  = pd.read_csv(compound_path)
         summary_rows = []
 
+        total = max(1, len(compound_df))
+        done  = 0
+
         for row in compound_df.itertuples():
-            base_name = f"{row.ID}_{row.adduct}_{row.tag}"
-            eic_path = os.path.join(spectra_dir, f"{base_name}_EIC.csv")
-            ms2_path = os.path.join(spectra_dir, f"{base_name}_MS2.csv")
+            base = f"{row.ID}_{row.adduct}_{row.tag}"
+            eic_path = os.path.join(spectra_dir, f"{base}_EIC.csv")
+            ms2_path = os.path.join(spectra_dir, f"{base}_MS2.csv")
 
             summary = {
-                "ID": row.ID,
-                "adduct": row.adduct,
-                "tag": row.tag,
-                "qa_ms1_exists": False,
-                "qa_ms1_good_int": False,
-                "qa_ms1_above_noise": False,
-                "qa_ms2_exists": False,
-                "qa_ms2_good_int": False,
-                "qa_ms2_near": False,
-                "qa_pass": False,
-                "alignment": False,
-                "ms2_sel": False,
-                "ms1_rt": None,
-                "ms2_rt": None
+                "ID": row.ID, "adduct": row.adduct, "tag": row.tag,
+                "qa_ms1_exists": False, "qa_ms1_good_int": False, "qa_ms1_above_noise": False,
+                "qa_ms2_exists": False, "qa_ms2_good_int": False, "qa_ms2_near": False,
+                "qa_pass": False, "alignment": False, "ms2_sel": False,
+                "ms1_rt": None, "ms2_rt": None
             }
 
             rt_peak = None
-
             if os.path.exists(eic_path):
                 eic_df = pd.read_csv(eic_path)
                 if not eic_df.empty:
                     summary["qa_ms1_exists"] = True
-                    max_int = eic_df["intensity"].max()
+                    max_int  = eic_df["intensity"].max()
                     mean_int = eic_df["intensity"].mean()
-                    rt_peak = eic_df.loc[eic_df["intensity"].idxmax(), "rt"]
-                    summary["ms1_rt"] = float(rt_peak)
-                    summary["alignment"] = True
-                    if max_int > ms1_thresh:
-                        summary["qa_ms1_good_int"] = True
-                    if max_int > mean_int * s2n:
-                        summary["qa_ms1_above_noise"] = True
+                    rt_peak  = float(eic_df.loc[eic_df["intensity"].idxmax(), "rt"])
+                    summary["ms1_rt"]   = rt_peak
+                    summary["alignment"]= True
+                    if max_int > ms1_thresh: summary["qa_ms1_good_int"] = True
+                    if max_int > mean_int * s2n: summary["qa_ms1_above_noise"] = True
 
             if os.path.exists(ms2_path):
                 ms2_df = pd.read_csv(ms2_path)
@@ -436,40 +421,147 @@ def prescreen_data():
                     summary["qa_ms2_good_int"] = ms2_df["peak_list"].apply(
                         lambda x: any(float(p.split(":")[1]) > ms2_thresh for p in x.split(";") if ":" in p)
                     ).any()
-
                     if rt_peak is not None and "ms2_rt" in ms2_df.columns:
-                        rt_diffs = abs(ms2_df["ms2_rt"] - rt_peak)
-                        if (rt_diffs < rt_tol).any():
-                            closest_idx = rt_diffs.idxmin()
+                        diffs = (ms2_df["ms2_rt"] - rt_peak).abs()
+                        if (diffs < rt_tol).any():
+                            idx = diffs.idxmin()
                             summary["qa_ms2_near"] = True
-                            summary["ms2_sel"] = True
-                            summary["ms2_rt"] = float(ms2_df.loc[closest_idx, "ms2_rt"])
+                            summary["ms2_sel"]     = True
+                            summary["ms2_rt"]      = float(ms2_df.loc[idx, "ms2_rt"])
                         else:
-                            summary["alignment"] = False
+                            summary["alignment"]   = False
             else:
                 summary["alignment"] = False
 
-            flags = ["qa_ms1_exists", "qa_ms1_good_int", "qa_ms1_above_noise",
-                     "qa_ms2_exists", "qa_ms2_good_int", "qa_ms2_near"]
-            summary["qa_pass"] = all(summary[flag] for flag in flags)
+            flags = ["qa_ms1_exists","qa_ms1_good_int","qa_ms1_above_noise",
+                     "qa_ms2_exists","qa_ms2_good_int","qa_ms2_near"]
+            summary["qa_pass"] = all(summary[f] for f in flags)
 
             summary_rows.append(summary)
 
-        summary_df = pd.DataFrame(summary_rows, columns=[
-            "ID", "adduct", "tag",
-            "qa_ms1_exists", "qa_ms1_good_int", "qa_ms1_above_noise",
-            "qa_ms2_exists", "qa_ms2_good_int", "qa_ms2_near",
-            "qa_pass", "alignment", "ms2_sel",
-            "ms1_rt", "ms2_rt"
-        ])
+            # progress 60 → 99
+            done += 1
+            if job_id and (done % 20 == 0 or done == total):
+                prog = 60 + int(39 * done / total)
+                update_job(working_dir, job_id, progress=prog, message=f"Prescreen {done}/{total}…")
 
-        summary_path = os.path.join(working_directory, "summary_table.csv")
-        summary_df.to_csv(summary_path, index=False)
+        out = os.path.join(working_dir, "summary_table.csv")
+        pd.DataFrame(summary_rows).to_csv(out, index=False)
+        return {"status": "success", "summary_path": out}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
-        return jsonify({"status": "success", "message": "Prescreening complete."})
+
+
+def _extraction_outputs_exist(working_dir: str) -> bool:
+    spectra_dir = os.path.join(working_dir, "ms2_spectra")
+    if not os.path.isdir(spectra_dir):
+        return False
+    # at least one EIC or MS2 file produced
+    for root, _, files in os.walk(spectra_dir):
+        for fn in files:
+            if fn.endswith("_EIC.csv") or fn.endswith("_MS2.csv"):
+                return True
+    return False
+
+def _prescreen_outputs_exist(working_dir: str) -> bool:
+    return os.path.exists(os.path.join(working_dir, "summary_table.csv"))
+
+def _run_pipeline_background(job_id, working_dir, base_url="http://localhost:5000"):
+    try:
+        update_job(working_dir, job_id, state="running",
+                   started_at=pd.Timestamp.utcnow().isoformat(),
+                   progress=5, message="Starting extraction…")
+
+        # Extraction
+        res1 = _extract_data_impl(working_dir, job_id=job_id)
+        if res1.get("status") != "success":
+            update_job(working_dir, job_id, state="error", progress=0,
+                       message=f"Extraction failed: {res1}", finished_at=pd.Timestamp.utcnow().isoformat())
+            return
+
+        if not _extraction_outputs_exist(working_dir):
+            update_job(working_dir, job_id, state="error", progress=55,
+                       message="Extraction finished but no spectra/EIC files found.",
+                       finished_at=pd.Timestamp.utcnow().isoformat())
+            return
+
+        update_job(working_dir, job_id, progress=60, message="Extraction done. Starting prescreen…")
+
+        # Prescreen
+        res2 = _prescreen_impl(working_dir, job_id=job_id)
+        if res2.get("status") != "success":
+            update_job(working_dir, job_id, state="error", progress=60,
+                       message=f"Prescreen failed: {res2}", finished_at=pd.Timestamp.utcnow().isoformat())
+            return
+
+        if not _prescreen_outputs_exist(working_dir):
+            update_job(working_dir, job_id, state="error", progress=95,
+                       message="Prescreen finished but summary_table.csv not found.",
+                       finished_at=pd.Timestamp.utcnow().isoformat())
+            return
+
+        update_job(working_dir, job_id, state="done", progress=100, message="✅ Completed",
+                   finished_at=pd.Timestamp.utcnow().isoformat())
 
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        update_job(working_dir, job_id, state="error",
+                   message=f"Unhandled error in background pipeline: {e}",
+                   finished_at=pd.Timestamp.utcnow().isoformat())
+
+
+
+@app.route("/start_extract_prescreen", methods=["POST"])
+def start_extract_prescreen():
+    body = request.get_json(force=True)
+    working_dir = resolve_path(body.get("working_directory", ""))
+
+    if not os.path.isdir(working_dir):
+        return jsonify({"error": f"Invalid working directory: {working_dir}"}), 400
+
+    job_id = uuid.uuid4().hex[:12]
+    create_job(working_dir, job_id)
+
+    # spawn background process
+    p = Process(target=_run_pipeline_background, args=(job_id, working_dir))
+    p.daemon = True
+    p.start()
+
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/job_status", methods=["GET"])
+def job_status():
+    working_dir = resolve_path(request.args.get("working_directory", ""))
+    job_id = request.args.get("job_id", "")
+    if not working_dir or not job_id:
+        return jsonify({"error": "Missing working_directory or job_id", "state": "invalid"}), 400
+
+    data = load_status(working_dir)
+    job = data.get("jobs", {}).get(job_id)
+    if not job:
+        return jsonify({"id": job_id, "state": "unknown", "progress": 0,
+                        "message": "Job not found"}), 200
+    return jsonify(job)
+
+    
+@app.route("/extract_data", methods=["POST"])
+def extract_data():
+    req = request.get_json(force=True)
+    wd  = resolve_path(req.get("working_directory"))
+    job = req.get("job_id")
+    res = _extract_data_impl(wd, job_id=job)
+    code = 200 if res.get("status") == "success" else 500
+    return jsonify(res), code
+
+@app.route("/prescreen_data", methods=["POST"])
+def prescreen_data():
+    req = request.get_json(force=True)
+    wd  = resolve_path(req.get("working_directory"))
+    job = req.get("job_id")
+    res = _prescreen_impl(wd, job_id=job)
+    code = 200 if res.get("status") == "success" else 500
+    return jsonify(res), code
 
 
 @app.route("/get_csv")

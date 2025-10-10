@@ -41,55 +41,62 @@ export default function ExtractionPage() {
   };
 
   const handleExtractAndPrescreen = async () => {
-    setShowProgress(true);
-    let current = 10;
-    setProgress(current);
-    setStatus('⏳ Extracting data...');
+  setShowProgress(true);
+  setProgress(5);
+  setStatus('⏳ Queued job…');
 
-    const loadingInterval = setInterval(() => {
-      current += Math.random() * 5;
-      if (current < 55) {
-        setProgress(current);
-      }
-    }, 300);
+  try {
+    // Step 1 — Start background job
+    const res = await fetch('http://localhost:5000/start_extract_prescreen', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ working_directory: appState.working_directory }),
+    });
+    const data = await res.json();
 
-    try {
-      const extractRes = await extractData({ working_directory: appState.working_directory });
-
-      if (extractRes.data.status !== 'success') {
-        clearInterval(loadingInterval);
-        setProgress(0);
-        setStatus(`❌ Extraction failed: ${extractRes.data.message}`);
-        return;
-      }
-
-      clearInterval(loadingInterval);
-      setProgress(60);
-      setStatus('⏳ Running prescreening...');
-
-      let prescreenProgress = 60;
-      const prescreenInterval = setInterval(() => {
-        prescreenProgress += Math.random() * 5;
-        if (prescreenProgress < 95) {
-          setProgress(prescreenProgress);
-        }
-      }, 300);
-
-      const prescreenRes = await prescreenData({ working_directory: appState.working_directory });
-      clearInterval(prescreenInterval);
-
-      if (prescreenRes.data.status === 'success') {
-        setProgress(100);
-        setStatus('✅ Extraction & Prescreening complete! Summary saved to summary_table.csv');
-      } else {
-        setProgress(60);
-        setStatus(`❌ Prescreening failed: ${prescreenRes.data.message}`);
-      }
-    } catch (err) {
-      setProgress(0);
-      setStatus(`❌ Combined action failed: ${err.message}`);
+    if (data.error) {
+      throw new Error(data.error);
     }
-  };
+
+    const jobId = data.job_id;
+    setStatus(`🧪 Job started (ID: ${jobId.slice(0, 8)})`);
+    setProgress(10);
+
+    // Step 2 — Poll every 2 seconds for updates
+    const poll = setInterval(async () => {
+      try {
+        const r = await fetch(
+          `http://localhost:5000/job_status?working_directory=${encodeURIComponent(
+            appState.working_directory
+          )}&job_id=${jobId}`
+        );
+        const j = await r.json();
+
+        if (j.error) throw new Error(j.error);
+
+        // Update UI based on progress and state
+        setProgress(j.progress || 0);
+        setStatus(j.message || '');
+
+        if (j.state === 'done') {
+          clearInterval(poll);
+          setProgress(100);
+          setStatus('✅ Extraction & Prescreening complete! Summary saved to summary_table.csv');
+        } else if (j.state === 'error') {
+          clearInterval(poll);
+          setStatus(`❌ ${j.message || 'Job failed'}`);
+        }
+      } catch (err) {
+        clearInterval(poll);
+        setStatus(`❌ Failed to get status: ${err.message}`);
+      }
+    }, 2000);
+  } catch (err) {
+    setProgress(0);
+    setStatus(`❌ Failed to start: ${err.message}`);
+  }
+};
+
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#e0f4f7', fontFamily: 'sans-serif' }}>

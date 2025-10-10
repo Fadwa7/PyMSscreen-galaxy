@@ -47,3 +47,4 @@ zipp
 zope.event
 zope.interface
 gunicorn
+tqdm
