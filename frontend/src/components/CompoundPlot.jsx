@@ -1,9 +1,9 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import Plot from 'react-plotly.js';
 import Papa from 'papaparse';
 import axios from 'axios';
 import { useAppState } from '../context/AppStateContext';
-import { loadExtractionConfig, saveExtractConfig } from '../api/api';
+import { loadExtractionConfig, saveExtractConfig, exportSummaryPDF } from '../api/api';
 import chroma from 'chroma-js';
 import Plotly from 'plotly.js-dist-min';
 
@@ -248,14 +248,69 @@ const CompoundPlot = ({ compoundGroup, onExportReady }) => {
   const [structureInfo, setStructureInfo] = useState(null);
   const [mzText, setMzText] = useState('');
   const [publicationMode, setPublicationMode] = useState(false);
+  const [axisRanges, setAxisRanges] = useState({}); // e.g. { xaxis:[min,max], yaxis:[min,max], xaxis2:..., ... }
+  const [uiRev, setUiRev] = useState('keep');       // Plotly will keep zoom across re-renders while this stays constant
+  const plotDivRef = useRef(null); 
+  const isAutoScalingRef = useRef(false);
   
-  const exportFilename = useMemo(() => {
+  const handleRelayout = (e) => {
+    const next = { ...axisRanges };
+
+    ['xaxis','yaxis','xaxis2','yaxis2','xaxis3','yaxis3'].forEach(ax => {
+      const r0 = e[`${ax}.range[0]`];
+      const r1 = e[`${ax}.range[1]`];
+      if (r0 !== undefined && r1 !== undefined) next[ax] = [r0, r1];
+      if (e[`${ax}.autorange`] === true) delete next[ax];
+    });
+
+    setAxisRanges(next);
+
+    // if any axis triggered autorange, reset all
+    if (Object.keys(e).some(k => k.endsWith('.autorange') && e[k] === true)) {
+      setAxisRanges({});
+      if (plotDivRef.current) autoscaleAllAxes(plotDivRef.current);
+    }
+  };
+
+const resetZoom = () => {
+  setAxisRanges({});
+  setUiRev(String(Date.now()));
+  if (plotDivRef.current) {
+    autoscaleAllAxes(plotDivRef.current);
+  }
+};
+function autoscaleAllAxes(gd) {
+  if (!gd || !gd._fullLayout) return;
+
+  // Only include axes that exist on this figure
+  const axKeys = Object.keys(gd._fullLayout).filter(k => /^(xaxis|yaxis)\d*$/.test(k));
+  if (axKeys.length === 0) return;
+
+  // Avoid recursive calls
+  if (isAutoScalingRef.current) return;
+  isAutoScalingRef.current = true;
+
+  // Build payload with autorange flags for all axes
+  const payload = {};
+  axKeys.forEach(k => { payload[`${k}.autorange`] = true; });
+
+  // Perform relayout and also trigger Plotly's internal autoscale recompute
+  Plotly.relayout(gd, payload).then(() => {
+    Plotly.Plots.resize(gd);
+    isAutoScalingRef.current = false;
+  }).catch(() => {
+    isAutoScalingRef.current = false;
+  });
+}
+
+
+const exportFilename = useMemo(() => {
     const first = compoundGroup?.[0];
     const name = (structureInfo?.name || first?.Name || 'compound') + '';
     const mz = first?.mz != null ? Number(first.mz).toFixed(4) : 'mz';
     return `${name.replace(/[^a-z0-9]+/gi, '_')}_mZ_${mz}`;
   }, [structureInfo, compoundGroup]);
-
+ 
   useEffect(() => {
     const fetchData = async () => {
       if (!compoundGroup?.length || !appState?.working_directory) return;
@@ -410,19 +465,20 @@ const CompoundPlot = ({ compoundGroup, onExportReady }) => {
           groupclick: 'togglegroup',
           orientation: 'v',
         },
+        uirevision: uiRev,
 
         // EIC
         xaxis: { title:{ text: 'RT (min)',font: { size: publicationMode ? PUB.axisLabelSize : 12 }},tickfont: { size: publicationMode ? PUB.tickSize : 12 }, showline: true, linewidth: 1, linecolor: '#000', mirror: 'allticks', range: [0, 30], ticks: 'outside', ticklen: 6, tickwidth: 1,
-                 gridcolor: PUB.grid, zeroline: false, anchor: 'y1' },
+                 gridcolor: PUB.grid, zeroline: false, anchor: 'y1', ...(axisRanges.xaxis ? { autorange: false, range: axisRanges.xaxis } : {}) },
         yaxis: { title: { text: 'MS1 Intensity' }, tickfont: { size: publicationMode ? PUB.tickSize : 12 },
                 tickformat: '.2e',
                 showline: true, linewidth: 1, linecolor: '#000', mirror: 'allticks',
                 ticks: 'outside', ticklen: 6, tickwidth: 1,
-                gridcolor: PUB.grid, zeroline: false, anchor: 'x1' },
+                gridcolor: PUB.grid, zeroline: false, anchor: 'x1', ...(axisRanges.yaxis ? { autorange: false, range: axisRanges.yaxis } : {}) },
 
          // MS2 RT lines        
         xaxis2: { title:{ text: 'RT (min)',font: { size: publicationMode ? PUB.axisLabelSize : 12 }},tickfont: { size: publicationMode ? PUB.tickSize : 12 }, showline: true, linewidth: 1, linecolor: '#000', mirror: 'allticks', range: [0, 30], ticks: 'outside', ticklen: 6, tickwidth: 1,
-                 gridcolor: PUB.grid, zeroline: false, anchor: 'y2' },
+                 gridcolor: PUB.grid, zeroline: false, matches: 'x', anchor: 'y2', ...(axisRanges.xaxis ? { /* no axisRanges.xaxis2 when matched */ } : {}) },
         yaxis2: {
           title: { text: 'MS2 Intensity', font: { size: publicationMode ? PUB.axisLabelSize : 12 }},
           range: useRelative ? [0, 1050] : [0, maxMS1Y * 1.1],
@@ -430,12 +486,12 @@ const CompoundPlot = ({ compoundGroup, onExportReady }) => {
           ticks: 'outside', ticklen: 6, tickwidth: 1,
           gridcolor: PUB.grid, zeroline: false,
           tickformat: useRelative ? '' : '.2e',
-          anchor: 'x2'
+          anchor: 'x2', ...(axisRanges.yaxis2 ? { autorange: false, range: axisRanges.yaxis2 } : {})
         },
 
          // Fragment sticks (FIX: dynamic m/z range)
         xaxis3: { title:{ text: 'm/z',font: { size: publicationMode ? PUB.axisLabelSize : 12 }},tickfont: { size: publicationMode ? PUB.tickSize : 12 }, showline: true, linewidth: 1, linecolor: '#000', mirror: 'allticks', autorange: true, ticks: 'outside', ticklen: 6, tickwidth: 1,
-                 gridcolor: PUB.grid, zeroline: false, anchor: 'y3' },
+                 gridcolor: PUB.grid, zeroline: false, anchor: 'y3', ...(axisRanges.xaxis3 ? { autorange: false, range: axisRanges.xaxis3 } : {}) },
         yaxis3: {
           title: { text: 'Fragment Intensity', tickfont: { size: publicationMode ? PUB.tickSize : 12 } },
           range: useRelative ? [0, 1050] : [0, maxFragmentY * 1.1],
@@ -443,7 +499,7 @@ const CompoundPlot = ({ compoundGroup, onExportReady }) => {
           ticks: 'outside', ticklen: 6, tickwidth: 1,
           gridcolor: PUB.grid, zeroline: false,
           tickformat: useRelative ? '' : '.2e',
-          anchor: 'x3'
+          anchor: 'x3', ...(axisRanges.yaxis3 ? { autorange: false, range: axisRanges.yaxis3 } : {})
         }
       };
 
@@ -491,12 +547,30 @@ const CompoundPlot = ({ compoundGroup, onExportReady }) => {
           data={plotObj.data}
           layout={plotObj.layout}
           style={{ width: '100%', height: '100%' }}
+          onInitialized={(_, gd) => { plotDivRef.current = gd; }}
+          onRelayout={handleRelayout}
           config={{
               responsive: true,
               displaylogo: false,
-              modeBarButtonsToRemove: ['toImage'],
+              modeBarButtonsToRemove: ['toImage'],              
               modeBarButtonsToAdd: [
+
               {
+                name: 'Reset zoom',
+                title: 'Reset zoom on all plots',
+                icon: Plotly.Icons.autoscale,
+                click: resetZoom,
+              },
+              {
+                name: 'Autoscale all axes',
+                icon: Plotly.Icons.autoscale,
+                click: (gd) => {
+                    setAxisRanges({});
+                    autoscaleAllAxes(gd);
+                  },
+             },
+                             
+            {
                 name: 'Download SVG',
                 icon: Plotly.Icons.camera,
                 click: (gd) => {Plotly.downloadImage(gd, {format: 'svg',filename: exportFilename });
@@ -518,6 +592,7 @@ const CompoundPlot = ({ compoundGroup, onExportReady }) => {
            },
           },
          ],
+         doubleClick: 'reset',
         }}
       />
       ) : (

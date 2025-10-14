@@ -85,6 +85,7 @@ const PlottingPage = () => {
   const [exportPayload, setExportPayload] = useState(null);
   const [qaFlags, setQaFlags] = useState({});
   const [toastMessage, setToastMessage] = useState('');
+  const qaFlagsCache = useRef({});
   const isTrue = (val) => val === true || val === 'true' || val === 'True' || val === 1 || val === '1';
   const isSingleTagSelected = () => selectedTags.length === 1;
 
@@ -208,7 +209,8 @@ const PlottingPage = () => {
            s => s.ID === row.ID && s.adduct === row.adduct && s.tag === row.tag
         ) || {};
 
-        flags[key] = {
+        const cached = qaFlagsCache.current[key];
+        flags[key] = cached ? { ...cached } : {
           MS1_Exists: isTrue(summaryMatch.qa_ms1_exists),
           MS2_Exists: isTrue(summaryMatch.qa_ms2_exists),
           MS1_Intensity: isTrue(summaryMatch.qa_ms1_good_int),
@@ -223,14 +225,18 @@ const PlottingPage = () => {
   }, [currentIndex, compoundOptions, groupedByID]);
 
   const toggleFlag = (key, flag) => {
-    setQaFlags(prev => ({
+  setQaFlags(prev => {
+    const updated = {
       ...prev,
       [key]: {
         ...prev[key],
         [flag]: !prev[key][flag]
       }
-    }));
-  };
+    };
+    qaFlagsCache.current[key] = updated[key];  // store it persistently
+    return updated;
+  });
+};
 
 const handleExportPeakList = async () => {
   if (!appState?.working_directory || !selectedGroup || !isSingleTagSelected()) return;
@@ -423,204 +429,231 @@ const handleExportPeakList = async () => {
               }
             }}
           />
-          {/* Toast Message */}
-          {toastMessage && (
-            <div style={{
-              position: 'fixed',
-              bottom: '20px',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              backgroundColor: '#333',
-              color: '#fff',
-              padding: '10px 20px',
-              borderRadius: '5px',
-              fontSize: '14px',
-              boxShadow: '0 2px 5px rgba(0, 0, 0, 0.2)',
-              zIndex: 1000,
-            }}>
-              {toastMessage}
-           </div>
-            
-          )}
-            
+
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
             <button onClick={handlePrev} style={plotButtonStyle}>Previous</button>
             <button onClick={handleNext} style={plotButtonStyle}>Next</button>
           </div>
 
-          {selectedGroup && (
-            <>
-          <div style={{
-	     background: '#fff',
-	     padding: '12px',
-	     borderRadius: '12px',
-	     marginTop: '12px',
-	     boxShadow: '0 2px 5px rgba(0,0,0,0.1)'
-	  }}>
-	     <h4 style={{ textAlign: 'center', fontSize: '14px', marginBottom: '10px' }}>Grouped Entries</h4>
-	     <table style={{
-	       width: '100%',
-	       fontSize: '12px',
-	       borderCollapse: 'separate',
-	       borderSpacing: '0 4px'
-	     }}>
-	       <thead style={{ backgroundColor: '#ececec' }}>
-	        <tr>
-		  <th style={thStyle}>Tag</th>
-		  <th style={thStyle}>Adduct</th>
-		  <th style={thStyle}>
-        {selectedGroup[0]?.known === 'suspect' ? 'm/z' : 'Name'}
-      </th>
-	        </tr>
-	      </thead>
-	      <tbody>
-	        {selectedGroup.map((row, idx) => (
-		  <tr key={idx} style={{
-		    backgroundColor: idx % 2 === 0 ? '#fafafa' : '#f0f0f0',
-		    borderRadius: '6px'
-		  }}>
-		    <td style={tdStyle}>{row.tag}</td>
-		    <td style={tdStyle}>{row.adduct}</td>
-		    <td style={tdStyle}>
-          {selectedGroup[0]?.known === 'suspect'
-            ? parseFloat(row.mz).toFixed(4)
-            : row.Name}
-        </td>
-		  </tr>
-	        ))}
-	     </tbody>
-	   </table>
+         {/* Manual QA Flags (header pinned; table scrolls) */}
+<div
+  style={{
+    marginTop: '12px',
+    border: '1px solid #ccc',
+    borderRadius: '8px',
+    background: '#fff',
+    display: 'flex',
+    flexDirection: 'column'
+  }}
+>
+  <div
+    style={{
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: '8px 10px',
+      borderBottom: '1px solid #eee',
+      background: '#f9fafb'
+    }}
+  >
+    <h4 style={{ fontSize: '13px', margin: 0 }}>Manual QA Flags</h4>
+    <button
+      onClick={handleUpdateQA}
+      style={{ ...plotButtonStyle, fontSize: '11px', padding: '4px 10px', borderRadius: 5 }}
+    >
+      ✅ Update Summary Table
+    </button>
+  </div>
 
-	   <button onClick={() => setSelectedGroup(groupedByID[currentIndex]?.group)} style={{
-	      marginTop: '10px',
-	      width: '100%',
-	      padding: '8px',
-	      borderRadius: '6px',
-	      fontWeight: 'bold',
-	      fontSize: '13px',
-	      background: 'linear-gradient(to right, #a7cce5, #bfe1f2)',
-	      color: '#333',
-	      border: 'none',
-	      cursor: 'pointer'
-	   }}>
-	     📊 Plot Selected
-	   </button>
+  <div style={{ maxHeight: '230px', overflow: 'auto', padding: '8px' }}>
+    {selectedGroup && selectedGroup.length > 0 ? (
+      <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+        <thead>
+          <tr>
+            <th style={thStyle}>Tag</th>
+            <th style={thStyle}>Adduct</th>
+            <th style={thStyle}>MS1 Exists</th>
+            <th style={thStyle}>MS2 Exists</th>
+            <th style={thStyle}>MS1 Intensity</th>
+            <th style={thStyle}>S2N Ratio</th>
+            <th style={thStyle}>RT Align</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(selectedGroup || []).map((row, idx) => {
+            const key = `${row.ID}_${row.adduct}_${row.tag}`;
+            const flags = qaFlags[key] || {};
+            return (
+              <tr key={idx}>
+                <td style={tdStyle}>{row.tag}</td>
+                <td style={tdStyle}>{row.adduct}</td>
+                {['MS1_Exists','MS2_Exists','MS1_Intensity','S2N_ratio','RT_Alignment'].map(flag => (
+                  <td key={flag} style={{ ...tdStyle, textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={!!flags[flag]}
+                      onChange={() => toggleFlag(key, flag)}
+                    />
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    ) : (
+      <div style={{ textAlign: 'center', color: '#666', fontSize: 12, padding: 6 }}>
+        No compound selected
+      </div>
+    )}
+  </div>
+</div>
 
-	   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '14px' }}>
-	    <button onClick={handleSaveSinglePlot} style={{
-	      padding: '8px',
-	      borderRadius: '6px',
-	      background: 'linear-gradient(to right, #f6d365, #fda085)',
-	      border: 'none',
-	      color: '#333',
-	      fontWeight: 'bold',
-	      cursor: 'pointer'
-	    }}>
-	      💾 Save Plot
-	    </button>
+{/* Grouped Entries (single instance below QA flags) */}
+{selectedGroup && (
+  <div
+    style={{
+      background: '#fff',
+      padding: '12px',
+      borderRadius: '12px',
+      marginTop: '12px',
+      boxShadow: '0 2px 5px rgba(0,0,0,0.1)'
+    }}
+  >
+    <h4 style={{ textAlign: 'center', fontSize: 14, marginBottom: 10 }}>Grouped Entries</h4>
+    <table
+      style={{
+        width: '100%',
+        fontSize: 12,
+        borderCollapse: 'separate',
+        borderSpacing: '0 4px'
+      }}
+    >
+      <thead style={{ backgroundColor: '#ececec' }}>
+        <tr>
+          <th style={thStyle}>Tag</th>
+          <th style={thStyle}>Adduct</th>
+          <th style={thStyle}>{selectedGroup[0]?.known === 'suspect' ? 'm/z' : 'Name'}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {selectedGroup.map((row, idx) => (
+          <tr key={idx} style={{ backgroundColor: idx % 2 === 0 ? '#fafafa' : '#f0f0f0' }}>
+            <td style={tdStyle}>{row.tag}</td>
+            <td style={tdStyle}>{row.adduct}</td>
+            <td style={tdStyle}>
+              {selectedGroup[0]?.known === 'suspect' ? parseFloat(row.mz).toFixed(4) : row.Name}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
 
-	    <button onClick={handleExportSummaryPDF} style={{
-	      padding: '8px',
-	      borderRadius: '6px',
-	      background: 'linear-gradient(to right, #f6d365, #fda085)',
-	      border: 'none',
-	      color: '#333',
-	      fontWeight: 'bold',
-	      cursor: 'pointer'
-	    }}>
-	      📝 Export Summary PDF
-	    </button>
-	  </div>
-	</div>
+    <button
+      onClick={() => setSelectedGroup(groupedByID[currentIndex]?.group)}
+      style={{
+        marginTop: 10, width: '100%', padding: 8, borderRadius: 6, fontWeight: 'bold',
+        fontSize: 13, background: 'linear-gradient(to right, #a7cce5, #bfe1f2)', color: '#333',
+        border: 'none', cursor: 'pointer'
+      }}
+    >
+      📊 Plot Selected
+    </button>
 
-                            
-            <div style={{ marginTop: '12px', maxHeight: '250px', overflow: 'auto', border: '1px solid #ccc', borderRadius: '8px', padding: '8px', background: '#fff' }}>
-                <h4 style={{ fontSize: '13px' }}>Manual QA Flags</h4>
-                <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr>
-                      <th style={thStyle}>Tag</th>
-                      <th style={thStyle}>Adduct</th>
-                      <th style={thStyle}>MS1 Exists</th>    
-                      <th style={thStyle}>MS2 Exists</th>
-                      <th style={thStyle}>MS1 Intensity</th>
-                      <th style={thStyle}>S2N Ratio</th>
-                      <th style={thStyle}>RT Align</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                                {selectedGroup.map((row, idx) => {
-                      const key = `${row.ID}_${row.adduct}_${row.tag}`;
-                      const flags = qaFlags[key] || {};
-                      return (
-                        <tr key={idx}>
-                          <td style={tdStyle}>{row.tag}</td>
-                          <td style={tdStyle}>{row.adduct}</td>
-                          {['MS1_Exists', 'MS2_Exists', 'MS1_Intensity', 'S2N_ratio', 'RT_Alignment'].map(flag => (
-                            <td key={flag} style={{ ...tdStyle, textAlign: 'center' }}>
-                              <input type="checkbox" checked={!!flags[flag]} onChange={() => toggleFlag(key, flag)} />
-                            </td>
-                          ))}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                <button onClick={handleUpdateQA} style={{ ...plotButtonStyle, marginTop: '8px', width: '100%' }}>✅ Update Summary Table</button>
-              </div>
+    <button
+      onClick={handleSaveSinglePlot}
+      style={{
+        padding: 8, marginTop: 10, borderRadius: 6,
+        background: 'linear-gradient(to right, #f6d365, #fda085)',
+        border: 'none', color: '#333', fontWeight: 'bold', cursor: 'pointer', width: '100%'
+      }}
+    >
+      💾 Save Plot
+    </button>
 
-              <button
-                onClick={handleExportPeakList}
-                disabled={!isSingleTagSelected()}
-                style={{
-                  ...exportPeakListButtonStyle,
-                  marginTop: '10px',
-                  width: '100%',
-                  opacity: isSingleTagSelected() ? 1 : 0.5,
-                  cursor: isSingleTagSelected() ? 'pointer' : 'not-allowed'
-                }}
-                title={
-                  isSingleTagSelected()
-                    ? 'Copy MS2 peak list to clipboard'
-                    : 'Select a single tag to enable MS2 export'
-                }
-              >
-                📋 Export Peak List
-              </button>
+    <button
+      onClick={handleExportSummaryPDF}
+      style={{
+        padding: 8, marginTop: 10, borderRadius: 6,
+        background: 'linear-gradient(to right, #f6d365, #fda085)',
+        border: 'none', color: '#333', fontWeight: 'bold', cursor: 'pointer', width: '100%'
+      }}
+    >
+      📝 Export Summary PDF
+    </button>
 
-            </>
-          )}
+    <button
+      onClick={handleExportPeakList}
+      disabled={!isSingleTagSelected()}
+      style={{
+        ...exportPeakListButtonStyle,
+        marginTop: 10,
+        width: '100%',
+        opacity: isSingleTagSelected() ? 1 : 0.5,
+        cursor: isSingleTagSelected() ? 'pointer' : 'not-allowed'
+      }}
+      title={
+        isSingleTagSelected()
+          ? 'Copy MS2 peak list to clipboard'
+          : 'Select a single tag to enable MS2 export'
+      }
+    >
+      📋 Export Peak List
+    </button>
+  </div>
+)}
 
-          <button
-            onClick={() => navigate('/')}
-            style={{
-              bottom: '10px',
-              left: '10px',
-              padding: '6px 12px',
-              fontSize: '12px',
-              fontWeight: '600',
-              borderRadius: '5px',
-              background: 'linear-gradient(to bottom, #a7cce5, #bfe1f2)',
-              color: '#1a1a1a',
-              boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
-              cursor: 'pointer',
-            }}
-          >
-            Back to Setup
-          </button>
-        </div>
-        
-        {/* Right Panel (Compound Plot area) */}
-        <div style={{ flex: 1, padding: '16px', overflowY: 'auto' }}>
-          <CompoundPlot
-            compoundGroup={selectedGroup || []}
-            onExportReady={setExportPayload}
-            onFilenameChange={setSinglePlotFilename}
-        />
-       </div>
-     </div>
-   </div>
-  );
+<button
+  onClick={() => navigate('/')}
+  style={{
+    marginTop: '12px',
+    padding: '6px 12px',
+    fontSize: '12px',
+    fontWeight: 600,
+    borderRadius: 5,
+    background: 'linear-gradient(to bottom, #a7cce5, #bfe1f2)',
+    color: '#1a1a1a',
+    boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
+    cursor: 'pointer'
+  }}
+>
+  Back to Setup
+</button>
+</div> {/* ← close LEFT pane */}
+
+<div style={{ flex: 1, padding: '16px', overflowY: 'auto' }}>
+  <CompoundPlot
+    compoundGroup={selectedGroup || []}
+    onExportReady={setExportPayload}
+    onFilenameChange={setSinglePlotFilename}
+  />
+</div>
+</div> {/* ← close the flex container (left + right) */}
+
+{/* Global toast (one place only) */}
+{toastMessage && (
+  <div
+    style={{
+      position: 'fixed',
+      bottom: 20,
+      left: '50%',
+      transform: 'translateX(-50%)',
+      backgroundColor: '#333',
+      color: '#fff',
+      padding: '10px 20px',
+      borderRadius: 5,
+      fontSize: 14,
+      boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
+      zIndex: 1000
+    }}
+  >
+    {toastMessage}
+  </div>
+ )}
+</div> 
+);
 };
+
+
 
 export default PlottingPage;
