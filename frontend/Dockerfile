@@ -1,5 +1,5 @@
 # Build step
-FROM node:18 as builder
+FROM mirror.gcr.io/library/node:18 AS builder
 
 WORKDIR /app
 
@@ -11,7 +11,7 @@ COPY . .
 RUN npm run build
 
 # Serve using nginx
-FROM nginx:alpine
+FROM mirror.gcr.io/library/nginx:alpine
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
