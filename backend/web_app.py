@@ -149,21 +149,44 @@ def generate_table():
             return jsonify({"error": f"Compound CSV file not found: {compound_csv_path}"}), 404
 
         compound_df = pd.read_csv(compound_csv_path)
+        # Normalize column names (case-insensitive)
+        compound_df.columns = [c.strip() for c in compound_df.columns]
+        compound_df.columns = [c.lower() if c.lower() in ["id", "name", "smiles", "mz", "rt"] else c for c in compound_df.columns]
         output_rows = []
         compound_set = os.path.splitext(os.path.basename(compound_csv))[0]
 
         for compound in compound_df.itertuples():
-            smiles = getattr(compound, "SMILES", "")
-            try:
-                mol = Chem.MolFromSmiles(smiles)
-                if mol is None:
-                    print(f" Invalid SMILES for ID {compound.ID}")
+            smiles = getattr(compound, "smiles", "")
+            mz_from_csv = getattr(compound, "mz", None)
+            rt_from_csv = getattr(compound, "rt", "")
+            name = getattr(compound, "name", "")
+            compound_id = getattr(compound, "id")
+
+            neutral_mass = None
+            formula = ""
+            known_type = "structure"
+
+            # === CASE 1: SMILES provided ===
+            if isinstance(smiles, str) and smiles.strip():
+                try:
+                    mol = Chem.MolFromSmiles(smiles)
+                    if mol:
+                        neutral_mass = Descriptors.ExactMolWt(mol)
+                        formula = rdMolDescriptors.CalcMolFormula(mol)
+                    else:
+                        known_type = "suspect"
+                except Exception as e:
+                    print(f"SMILES parse failed for ID {compound_id}: {e}")
+                    known_type = "suspect"
+
+            # === CASE 2: No SMILES, use provided m/z ===
+            else:
+                known_type = "suspect"
+                if pd.notnull(mz_from_csv):
+                    neutral_mass = float(mz_from_csv)
+                else:
+                    print(f"Missing both SMILES and m/z for ID {compound_id}")
                     continue
-                neutral_mass = Descriptors.ExactMolWt(mol)
-                formula = rdMolDescriptors.CalcMolFormula(mol)
-            except Exception as e:
-                print(f" Failed to parse SMILES {smiles}: {e}")
-                continue
 
             for entry in state.get("mzml_files", []):
                 mzml_filename = os.path.basename(entry.get("file", ""))
@@ -175,31 +198,32 @@ def generate_table():
                     print(f" Unknown adduct '{adduct}' for file {mzml_filename}")
                     continue
 
-                mz = neutral_mass + adduct_mass
+                # If known structure, add adduct mass. If suspect, keep mz as given.
+                mz = neutral_mass + adduct_mass if known_type == "structure" else neutral_mass
 
                 row = {
-                    "ID": getattr(compound, "ID"),
+                    "ID": compound_id,
                     "mz": f"{mz:.6f}",
-                    "rt": "",
+                    "rt": rt_from_csv if pd.notnull(rt_from_csv) else "",
                     "adduct": adduct,
                     "tag": tag,
                     "set": compound_set,
-                    "Name": getattr(compound, "Name", ""),
-                    "known": "structure",
+                    "Name": name,
+                    "known": known_type,
                     "SMILES": smiles,
                     "Formula": formula,
-                    "file": mzml_filename
+                    "file": mzml_filename,
                 }
                 output_rows.append(row)
 
         output_path = os.path.join(working_directory, "comprehensive_table.csv")
         pd.DataFrame(output_rows).to_csv(output_path, index=False)
 
-        print(f" Table saved at: {output_path}")
+        print(f"✅ Comprehensive table saved at: {output_path}")
         return jsonify({"message": "Table generated successfully", "path": output_path})
-
+ 
     except Exception as e:
-        print(f" Error generating table: {e}")
+        print(f"❌ Error generating table: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -394,7 +418,7 @@ def _prescreen_impl(working_dir, job_id=None) -> dict:
             ms2_path = os.path.join(spectra_dir, f"{base}_MS2.csv")
 
             summary = {
-                "ID": row.ID, "adduct": row.adduct, "tag": row.tag,
+                "ID": row.ID, "Name": getattr(row, "Name", ""), "adduct": row.adduct, "tag": row.tag,
                 "qa_ms1_exists": False, "qa_ms1_good_int": False, "qa_ms1_above_noise": False,
                 "qa_ms2_exists": False, "qa_ms2_good_int": False, "qa_ms2_near": False,
                 "qa_pass": False, "alignment": False, "ms2_sel": False,

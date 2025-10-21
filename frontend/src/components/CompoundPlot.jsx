@@ -322,6 +322,13 @@ const exportFilename = useMemo(() => {
       
       const compTable = await loadComprehensiveTable(appState.working_directory);
       const first = compoundGroup[0];
+      const toNumber = (v) => {
+        const n = parseFloat(String(v ?? '').replace(/[^\d.+\-eE]/g, ''));
+        return Number.isFinite(n) ? n : 0.5;
+      };
+      const halfWindow = toNumber(retTimeShiftTol);
+      const rtHint = parseFloat(first.rt);
+      const hasRT = Number.isFinite(rtHint);
       const match = compTable.find(r => r.ID === first.ID);
       if (match) setStructureInfo({ smiles: match.SMILES, name: match.Name });
 
@@ -468,7 +475,7 @@ const exportFilename = useMemo(() => {
         uirevision: uiRev,
 
         // EIC
-        xaxis: { title:{ text: 'RT (min)',font: { size: publicationMode ? PUB.axisLabelSize : 12 }},tickfont: { size: publicationMode ? PUB.tickSize : 12 }, showline: true, linewidth: 1, linecolor: '#000', mirror: 'allticks', range: [0, 30], ticks: 'outside', ticklen: 6, tickwidth: 1,
+        xaxis: { title:{ text: 'RT (min)',font: { size: publicationMode ? PUB.axisLabelSize : 12 }},tickfont: { size: publicationMode ? PUB.tickSize : 12 }, showline: true, linewidth: 1, linecolor: '#000', mirror: 'allticks', range: hasRT ? [rtHint - halfWindow, rtHint + halfWindow] : [0, 30], ticks: 'outside', ticklen: 6, tickwidth: 1,
                  gridcolor: PUB.grid, zeroline: false, anchor: 'y1', ...(axisRanges.xaxis ? { autorange: false, range: axisRanges.xaxis } : {}) },
         yaxis: { title: { text: 'MS1 Intensity' }, tickfont: { size: publicationMode ? PUB.tickSize : 12 },
                 tickformat: '.2e',
