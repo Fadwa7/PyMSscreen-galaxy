@@ -1,7 +1,60 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAppState } from '../context/AppStateContext';
 import { saveExtractConfig, extractData, prescreenData } from '../api/api';
 import { useNavigate } from 'react-router-dom';
+
+const usePrefersDark = () => {
+  const [isDark, setIsDark] = useState(
+    typeof window !== 'undefined' &&
+      window.matchMedia &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches
+  );
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = (e) => setIsDark(e.matches);
+    mq.addEventListener ? mq.addEventListener('change', onChange) : mq.addListener(onChange);
+    return () => {
+      mq.removeEventListener ? mq.removeEventListener('change', onChange) : mq.removeListener(onChange);
+    };
+  }, []);
+  return isDark;
+};
+
+const makeTheme = (isDark) =>
+  isDark
+    ? {
+        bg: '#0f172a',
+        panel: '#0b1220',
+        panelLite: '#111827',
+        text: '#e5e7eb',
+        muted: '#9ca3af',
+        border: '#334155',
+        barBg: '#1f2937',
+        barTrack: '#0b1220',
+        ok: '#22c55e',
+        btnPrimary: '#1f2937',
+        btnPrimaryText: '#e5e7eb',
+        btnGo: '#166534',
+        btnGoGradFrom: '#22c55e',
+        btnGoGradTo: '#86efac'
+      }
+    : {
+        bg: '#e0f4f7',
+        panel: '#ffffff',
+        panelLite: '#f0faff',
+        text: '#111827',
+        muted: '#374151',
+        border: '#D1D5DB',
+        barBg: '#e0e0e0',
+        barTrack: '#ffffff',
+        ok: '#4caf50',
+        btnPrimary: '#a7cce5',
+        btnPrimaryText: '#111827',
+        btnGo: '#2e7d32',
+        btnGoGradFrom: '#77dd77',
+        btnGoGradTo: '#aaffaa'
+      };
 
 export default function ExtractionPage() {
   const navigate = useNavigate();
@@ -18,6 +71,9 @@ export default function ExtractionPage() {
   const [ms2IntensityThreshold, setMs2IntensityThreshold] = useState(2500);
   const [ms1SnRatio, setMs1SnRatio] = useState(3);
   const [retentionTimeDelay, setRetentionTimeDelay] = useState(0.5);
+  const isDark = usePrefersDark();
+  const theme = makeTheme(isDark);
+
 
   const handleSaveSettings = async () => {
     const config = {
@@ -99,15 +155,15 @@ export default function ExtractionPage() {
 
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#e0f4f7', fontFamily: 'sans-serif' }}>
-      <div className="header" style={{ textAlign: 'center', backgroundColor: '#f0f0f0', padding: '20px' }}>
+    <div className="min-h-screen" style={{ backgroundColor: theme.bg, color: theme.text, fontFamily: 'sans-serif' }}>
+      <div className="header" style={{ textAlign: 'center', backgroundColor: theme.panelLite, color: theme.text, padding: '20px' }}>
         <img src="/images/Title.jpg" alt="Title Image" style={{ maxWidth: '100%', height: '350px', margin: 'auto' }} />
         <h1 style={{ fontSize: '28px' }}>Extraction and Pre-screening</h1>
       </div>
 
       <div style={{ padding: '20px', textAlign: 'center', maxWidth: '90%', margin: 'auto' }}>
-        <details style={{ background: '#f0faff', padding: '10px', borderRadius: '8px', border: '1px solid #cceeff' }}>
-          <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>ℹ️ Extraction & Prescreening Instructions</summary>
+        <details style={{ background: theme.panelLite, padding: '10px', borderRadius: '8px', border: `1px solid solid ${theme.border}`, color: theme.text }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 'bold', color: theme.text }}>ℹ️ Extraction & Prescreening Instructions</summary>
           <ol style={{ paddingLeft: '20px', marginTop: '10px', textAlign: 'left' }}>
             <li>Default parameters for <strong>spectral extraction</strong> and <strong>prescreening</strong> are shown under their respective sections below.</li>
             <li>After saving, the configuration is written to <code>extract_config.yaml</code> in the working directory.</li>
@@ -119,42 +175,42 @@ export default function ExtractionPage() {
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', maxWidth: '90%', margin: 'auto' }}>
-        <div style={{ padding: '20px', backgroundColor: '#ffffff', borderRadius: '12px', boxShadow: '0 6px 12px rgba(0, 0, 0, 0.15)', border: '2px solid #cceeff', flex: 1 }}>
+        <div style={{ padding: '20px', backgroundColor: theme.panel, color: theme.text, borderRadius: '12px', boxShadow: '0 6px 12px rgba(0, 0, 0, 0.15)', border: `2px solid ${theme.border}`, flex: 1 }}>
           <h2>Spectral Extraction Parameters</h2>
           <label>MS1 Coarse Error:</label>
-          <input type="number" value={ms1CoarseError} onChange={e => setMs1CoarseError(e.target.value)} style={{ width: '100%' }} />
+          <input type="number" value={ms1CoarseError} onChange={e => setMs1CoarseError(e.target.value)} style={{ width: '100%', backgroundColor: theme.panelLite, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 6 }} />
           <label>MS1 Fine Error:</label>
-          <input type="number" value={ms1FineError} onChange={e => setMs1FineError(e.target.value)} style={{ width: '100%' }} />
+          <input type="number" value={ms1FineError} onChange={e => setMs1FineError(e.target.value)} style={{ width: '100%', backgroundColor: theme.panelLite, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 6 }} />
           <label>MS1 EIC Window:</label>
-          <input type="number" value={ms1EicWindow} onChange={e => setMs1EicWindow(e.target.value)} style={{ width: '100%' }} />
+          <input type="number" value={ms1EicWindow} onChange={e => setMs1EicWindow(e.target.value)} style={{ width: '100%', backgroundColor: theme.panelLite, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 6 }} />
           <label>Retention Time Window (min):</label>
-          <input type="number" value={retentionTimeWindow} onChange={e => setRetentionTimeWindow(e.target.value)} style={{ width: '100%' }} />
+          <input type="number" value={retentionTimeWindow} onChange={e => setRetentionTimeWindow(e.target.value)} style={{ width: '100%', backgroundColor: theme.panelLite, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 6 }} />
         </div>
 
-        <div style={{ padding: '20px', backgroundColor: '#ffffff', borderRadius: '12px', boxShadow: '0 6px 12px rgba(0, 0, 0, 0.15)', border: '2px solid #cceeff', flex: 1 }}>
+        <div style={{ padding: '20px', backgroundColor: theme.panel, color: theme.text, borderRadius: '12px', boxShadow: '0 6px 12px rgba(0, 0, 0, 0.15)', border: `2px solid ${theme.border}`, flex: 1 }}>
           <h2>Pre-screening Parameters</h2>
           <label>MS1 Intensity Threshold:</label>
-          <input type="number" value={ms1IntensityThreshold} onChange={e => setMs1IntensityThreshold(e.target.value)} style={{ width: '100%' }} />
+          <input type="number" value={ms1IntensityThreshold} onChange={e => setMs1IntensityThreshold(e.target.value)} style={{ width: '100%', backgroundColor: theme.panelLite, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 6 }} />
           <label>MS2 Intensity Threshold:</label>
-          <input type="number" value={ms2IntensityThreshold} onChange={e => setMs2IntensityThreshold(e.target.value)} style={{ width: '100%' }} />
+          <input type="number" value={ms2IntensityThreshold} onChange={e => setMs2IntensityThreshold(e.target.value)} style={{ width: '100%', backgroundColor: theme.panelLite, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 6 }} />
           <label>MS1 Signal-to-Noise Ratio:</label>
-          <input type="number" value={ms1SnRatio} onChange={e => setMs1SnRatio(e.target.value)} style={{ width: '100%' }} />
+          <input type="number" value={ms1SnRatio} onChange={e => setMs1SnRatio(e.target.value)} style={{ width: '100%', backgroundColor: theme.panelLite, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 6 }} />
           <label>Retention Time Delay (+/- min):</label>
-          <input type="number" value={retentionTimeDelay} onChange={e => setRetentionTimeDelay(e.target.value)} style={{ width: '100%' }} />
+          <input type="number" value={retentionTimeDelay} onChange={e => setRetentionTimeDelay(e.target.value)} style={{ width: '100%', backgroundColor: theme.panelLite, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 6 }} />
         </div>
       </div>
 
       {showProgress && (
         <div style={{ width: '40%', margin: '20px 0 0 5%', textAlign: 'left' }}>
-          <div style={{ border: '1px solid #ccc', borderRadius: '8px', padding: '10px', backgroundColor: '#fff' }}>
-            <div style={{ width: '100%', height: '24px', backgroundColor: '#e0e0e0', borderRadius: '4px', overflow: 'hidden' }}>
-              <div style={{ width: `${progress}%`, height: '100%', backgroundColor: '#4caf50', transition: 'width 0.3s ease-in-out' }}></div>
+          <div style={{ border: `1px solid ${theme.border}`, borderRadius: '8px', padding: '10px', backgroundColor: theme.panel, color: theme.text }}>
+            <div style={{ width: '100%', height: '24px', backgroundColor: theme.barBg, borderRadius: '4px', overflow: 'hidden' }}>
+              <div style={{ width: `${progress}%`, height: '100%', backgroundColor: theme.ok, transition: 'width 0.3s ease-in-out' }}></div>
             </div>
             <div style={{ marginTop: '8px', fontWeight: 'bold' }}>
               Current Progress: {progress.toFixed(1)}%
             </div>
             {status && (
-              <div style={{ marginTop: '4px', color: status.includes('❌') ? 'red' : '#0077b6' }}>
+              <div style={{ marginTop: '4px', color: status.includes('❌') ? '#ef4444' : '#0077b6' }}>
                 {status}
               </div>
             )}
@@ -168,7 +224,9 @@ export default function ExtractionPage() {
           style={{
             padding: '10px 15px',
             borderRadius: '5px',
-            background: 'linear-gradient(to bottom, #a7cce5, #bfe1f2)'
+            background: `linear-gradient(to bottom, ${theme.btnGoGradFrom}, ${theme.btnGoGradTo})`,
+            color: theme.btnPrimaryText,
+            border: `1px solid ${theme.border}`
           }}
         >
           Save Settings
@@ -179,8 +237,10 @@ export default function ExtractionPage() {
           style={{
             padding: '10px 15px',
             borderRadius: '5px',
-            background: 'linear-gradient(to bottom, #77dd77, #aaffaa)',
-            fontWeight: 'bold'
+            background: `linear-gradient(to bottom, ${theme.btnGoGradFrom}, ${theme.btnGoGradTo})`,
+            fontWeight: 'bold',
+            color: theme.text,
+            border: `1px solid ${theme.border}`       
           }}
         >
           Extract & Prescreening
@@ -204,9 +264,10 @@ export default function ExtractionPage() {
               padding: '14px 24px',
               fontSize: '16px',
               fontWeight: 'bold',
-              background: 'linear-gradient(to bottom, #bde0fe, #a2d2ff)',
+              background: `linear-gradient(to bottom, ${theme.btnPrimary}, ${theme.btnPrimary})`,
+              color: theme.btnPrimaryText,
               borderRadius: '12px',
-              border: '1px solid #90e0ef',
+              border: `1px solid ${theme.border}`,
               cursor: 'pointer',
               transition: '0.3s'
             }}>
@@ -218,9 +279,10 @@ export default function ExtractionPage() {
               padding: '14px 24px',
               fontSize: '16px',
               fontWeight: 'bold',
-              background: 'linear-gradient(to bottom, #bde0fe, #a2d2ff)',
+              background: `linear-gradient(to bottom, ${theme.btnPrimary}, ${theme.btnPrimary})`,
+              color: theme.btnPrimaryText,
               borderRadius: '12px',
-              border: '1px solid #90e0ef',
+              border: `1px solid ${theme.border}`,
               cursor: 'pointer',
               transition: '0.3s'
             }}>

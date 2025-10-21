@@ -220,7 +220,7 @@ const TAG_DASHES  = ['solid', 'dash', 'dot', 'dashdot', 'longdash', 'longdashdot
 const getTagMarker = (idx) => TAG_MARKERS[idx % TAG_MARKERS.length];
 const getTagDash   = (idx) => TAG_DASHES[idx % TAG_DASHES.length];
 
-const CompoundPlot = ({ compoundGroup, onExportReady }) => {
+const CompoundPlot = ({ compoundGroup, onExportReady, theme }) => {
   const handleExportSummary = async () => {
     console.log("Calling exportSummaryPDF with:", compoundGroup, appState.working_directory);
     try {
@@ -613,7 +613,8 @@ const exportFilename = useMemo(() => {
         style={{
           marginTop: '12px',
           padding: '8px',
-          background: '#f7f7f7',
+          background: theme?.panelLite ?? '#f7f7f7',
+          color: theme?.text ?? '#000',
           border: '1px solid #ccc',
           borderRadius: '6px',
           fontFamily: 'monospace',

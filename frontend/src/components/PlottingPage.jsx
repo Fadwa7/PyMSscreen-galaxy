@@ -8,67 +8,119 @@ import { exportSummaryPDF } from '../api/api';
 import { saveQAFlags } from '../api/api';
 import { useNavigate } from 'react-router-dom';
 
-function PlottingHelpPanel() {
-  const [open, setOpen] = useState(false);
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        aria-controls="plotting-help"
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '6px 10px',
-          fontSize: 12,
-          fontWeight: 600,
-          borderRadius: 6,
-          border: '1px solid #cbd5e1',
-          background: '#eef2ff',
-          color: '#1f2937',
-          cursor: 'pointer'
-        }}
-        title={open ? 'Hide help' : 'Show help'}
-      >
-        ℹ️ Plotting Help
-        <span style={{ marginLeft: 4, fontSize: 10 }}>{open ? '▾' : '▸'}</span>
-      </button>
-
-      {open && (
-        <div
-          id="plotting-help"
-          role="region"
-          aria-label="Plotting page help"
-          style={{
-            marginTop: 8,
-            padding: 10,
-            border: '1px solid #e5e7eb',
-            borderRadius: 8,
-            background: '#ffffff',
-            fontSize: 12,
-            lineHeight: 1.45,
-            color: '#374151'
-          }}
-        >
-          <ul style={{ paddingLeft: 18, margin: 0 }}>
-            <li><strong>Default grouping:</strong> grouped by all tags & adducts; use filters to change.</li>
-            <li style={{ marginTop: 6 }}><strong>Top EICs:</strong> top 3 most intense EICs; double-click legend to isolate; corresponding MS2 peak shows if present.</li>
-            <li style={{ marginTop: 6 }}><strong>Relative intensity:</strong> toggles fragment/MS2 axes between relative and absolute.</li>
-            <li style={{ marginTop: 6 }}><strong>Greyscale fragments:</strong> MS2 fragments in greyscale.</li>
-            <li style={{ marginTop: 6 }}><strong>EIC colour fill:</strong> fills the EIC peak area.</li>
-            <li style={{ marginTop: 6 }}><strong>Publication mode:</strong> report-friendly styles + SVG/PNG download from the toolbar.</li>
-          </ul>
-        </div>
-      )}
-    </div>
+// --- dark mode support (inline, no CSS files) ---
+const usePrefersDark = () => {
+  const [isDark, setIsDark] = React.useState(
+    typeof window !== 'undefined' &&
+      window.matchMedia &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches
   );
-}
+  React.useEffect(() => {
+    if (!window.matchMedia) return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = (e) => setIsDark(e.matches);
+    mq.addEventListener ? mq.addEventListener('change', onChange) : mq.addListener(onChange);
+    return () => {
+      mq.removeEventListener ? mq.removeEventListener('change', onChange) : mq.removeListener(onChange);
+    };
+  }, []);
+  return isDark;
+};
 
+const makeTheme = (isDark) =>
+  isDark
+    ? {
+        bg: '#0f172a',
+        panel: '#0b1220',
+        panelLite: '#111827',
+        text: '#e5e7eb',
+        muted: '#9ca3af',
+        border: '#334155',
+        leftPane: '#0b1220',
+        leftPaneBorder: '#334155',
+        tableHeader: '#111827',
+        tableRowA: '#0e182b',
+        tableRowB: '#0b1220',
+        helpBg: '#0b1220',
+        helpBorder: '#334155',
+        toastBg: '#1f2937',
+        toastText: '#e5e7eb',
+        btnGradFrom: '#2b8dd8',
+        btnGradTo: '#9bd0ef',
+        accentText: '#e5e7eb'
+      }
+    : {
+        bg: '#ffffff',
+        panel: '#ffffff',
+        panelLite: '#f9f9f9',
+        text: '#1f2937',
+        muted: '#374151',
+        border: '#e5e7eb',
+        leftPane: '#f9f9f9',
+        leftPaneBorder: '#cccccc',
+        tableHeader: '#ececec',
+        tableRowA: '#fafafa',
+        tableRowB: '#f0f0f0',
+        helpBg: '#f0faff',
+        helpBorder: '#cceeff',
+        toastBg: '#333333',
+        toastText: '#ffffff',
+        btnGradFrom: '#a7cce5',
+        btnGradTo: '#bfe1f2',
+        accentText: '#1a1a1a'
+      };
+
+const buttonStyle = (theme, opts = {}) => {
+  const {
+    variant = 'primary',     // 'primary' | 'warning' | 'neutral'
+    disabled = false,
+    full = false,            // full width
+    size = 'md',             // 'sm' | 'md' | 'lg'
+  } = opts;
+
+  const sizes = {
+    sm: { padding: '6px 10px', fontSize: 12, borderRadius: 6 },
+    md: { padding: '8px 12px', fontSize: 13, borderRadius: 8 },
+    lg: { padding: '12px 16px', fontSize: 16, borderRadius: 10 },
+  };
+
+  let bg;
+  if (variant === 'warning') {
+    bg = 'linear-gradient(to right, #f6d365, #fda085)';
+  } else if (variant === 'neutral') {
+    bg = `linear-gradient(to bottom, ${theme.panelLite}, ${theme.panel})`;
+  } else {
+    // primary
+    bg = `linear-gradient(to bottom, ${theme.btnGradFrom}, ${theme.btnGradTo})`;
+  }
+
+  return {
+    ...sizes[size],
+    width: full ? '100%' : undefined,
+    fontWeight: 700,
+    background: bg,
+    color: theme.accentText,
+    border: `1px solid ${theme.border}`,
+    boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.5 : 1,
+    transition: 'filter .15s ease',
+  };
+};
+
+// Clear checkbox appearance: bigger + theme color
+const checkboxStyle = {
+  width: 18,
+  height: 18,
+  accentColor: '#60a5fa',            // blue in dark mode is very visible
+  // if you prefer to follow theme strictly, use theme.ok or a brand color
+  // accentColor: theme.ok,
+};
 
 const PlottingPage = () => {
   const { appState } = useAppState();
+  const isDark = usePrefersDark();
+  const theme = React.useMemo(() => makeTheme(isDark), [isDark]);
   const selectedIdRef = useRef(null);
   const [compounds, setCompounds] = useState([]);
   const navigate = useNavigate();
@@ -89,6 +141,46 @@ const PlottingPage = () => {
   const isTrue = (val) => val === true || val === 'true' || val === 'True' || val === 1 || val === '1';
   const isSingleTagSelected = () => selectedTags.length === 1;
 
+  const selectStyles = React.useMemo(() => ({
+  control: (base, state) => ({
+    ...base,
+    backgroundColor: theme.panelLite,
+    color: theme.text,
+    borderColor: theme.border,
+    boxShadow: state.isFocused ? `0 0 0 1px ${theme.border}` : base.boxShadow,
+    '&:hover': { borderColor: theme.muted }
+  }),
+  menu: (base) => ({
+    ...base,
+    backgroundColor: theme.panel,
+    color: theme.text,
+    border: `1px solid ${theme.border}`,
+    zIndex: 5
+  }),
+  option: (base, state) => ({
+    ...base,
+    backgroundColor: state.isSelected
+      ? theme.tableRowB
+      : state.isFocused
+      ? theme.tableRowA
+      : theme.panel,
+    color: theme.text
+  }),
+  input: (base) => ({ ...base, color: theme.text }),
+  singleValue: (base) => ({ ...base, color: theme.text }),
+  placeholder: (base) => ({ ...base, color: theme.muted }),
+  multiValue: (base) => ({ ...base, backgroundColor: theme.tableRowB }),
+  multiValueLabel: (base) => ({ ...base, color: theme.text }),
+  multiValueRemove: (base) => ({
+    ...base,
+    color: theme.text,
+    ':hover': { backgroundColor: theme.border, color: theme.text }
+  }),
+  dropdownIndicator: (base) => ({ ...base, color: theme.muted }),
+  clearIndicator: (base) => ({ ...base, color: theme.muted })
+}), [theme]);
+
+   
   const handleUpdateQA = () => {
     console.log("📤 Submitting QA flags:", qaFlags);  // still useful here
     saveQAFlags(appState.working_directory, qaFlags)
@@ -355,29 +447,32 @@ const handleExportPeakList = async () => {
     }
   };
 
-  const thStyle = { padding: '6px', border: '1px solid #ddd', textAlign: 'left', fontWeight: '600', color: '#333' };
-  const tdStyle = { padding: '6px', border: '1px solid #ddd' };
+  const thStyle = { padding: '6px', border: `1px solid ${theme.border}`, textAlign: 'left', fontWeight: '600', color: theme.text, background: theme.tableHeader };
+  const tdStyle = { padding: '6px', border: `1px solid ${theme.border}`, color: theme.text };
   const plotButtonStyle = {
     padding: '6px 12px', fontSize: '12px', fontWeight: '600', borderRadius: '5px',
-    background: 'linear-gradient(to bottom, #a7cce5, #bfe1f2)', color: '#1a1a1a',
-    boxShadow: '0 2px 5px rgba(0,0,0,0.1)', cursor: 'pointer'
+    background: `linear-gradient(to bottom, ${theme.btnGradFrom}, ${theme.btnGradTo})`, color: theme.accentText,
+    boxShadow: '0 2px 5px rgba(0,0,0,0.1)', cursor: 'pointer', border: `1px solid ${theme.border}`
   };
 
   const exportPeakListButtonStyle = { // Missing definition for exportPeakListButtonStyle
-    background: 'linear-gradient(to bottom, #b7f2b7, #d2f3d2)',
-    color: '#1a1a1a',
+    background: `linear-gradient(to bottom, ${theme.btnGradFrom}, ${theme.btnGradTo})`,
+    color: theme.accentText,
+    border: `1px solid ${theme.border}`,
+    borderRadius: 5,
+    padding: '6px 12px'
   };
 
   
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '12px', backgroundColor: '#f2f2f2', fontWeight: 'bold', fontSize: '18px', textAlign: 'center' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: theme.bg, color: theme.text }}>
+      <div style={{ padding: '12px', backgroundColor: theme.panelLite, borderBottom: `1px solid ${theme.border}`, fontWeight: 'bold', fontSize: '18px', textAlign: 'center' }}>
          pyMSscreen Visualization Dashboard
       </div>
       
       {/* Plotting Help (collapsible) */}
       <div style={{ padding: '8px 16px', textAlign: 'center', maxWidth: '90%', margin: '0 auto' }}>
-        <details style={{ background: '#f0faff', padding: 10, borderRadius: 8, border: '1px solid #cceeff' }}>
+        <details style={{ background: theme.helpBg, padding: 10, borderRadius: 8, border: `1px solid ${theme.helpBorder}`, color: theme.text }}>
           <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>
             ℹ️ Plotting Page info
           </summary>
@@ -393,12 +488,12 @@ const handleExportPeakList = async () => {
       </div>
         
       <div style={{ display: 'flex', flex: 1 }}>
-        <div style={{ width: '340px', padding: '16px', overflow: 'auto', background: '#f9f9f9', borderRight: '2px solid #ccc', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ width: '340px', padding: '16px', overflow: 'auto', background: theme.leftPane, borderRight: `2px solid ${theme.leftPaneBorder}`, display: 'flex', flexDirection: 'column', color: theme.text }}>
           <h3 style={{ textAlign: 'center' }}>Settings Pane</h3>
 
       {/* Settings Pane Help (collapsible) */}
       <div style={{ margin: '8px 0' }}>
-        <details style={{ background: '#ecfeff', padding: 10, borderRadius: 8, border: '1px solid #bae6fd' }}>
+        <details style={{ background: theme.helpBg, padding: 10, borderRadius: 8, border: `1px solid ${theme.helpBorder}`, color: theme.text }}>
           <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>
              Settings Pane info
           </summary>
@@ -412,14 +507,15 @@ const handleExportPeakList = async () => {
       </div>
 
           <label>Filter by Tag:</label>
-          <Select isMulti options={tagOptions} onChange={setSelectedTags} />
+          <Select isMulti options={tagOptions} onChange={setSelectedTags} styles={selectStyles} />
 
           <label style={{ marginTop: '10px' }}>Filter by Adduct:</label>
-          <Select isMulti options={adductOptions} onChange={setSelectedAdducts} />
+          <Select isMulti options={adductOptions} onChange={setSelectedAdducts} styles={selectStyles} />
 
           <label style={{ marginTop: '10px' }}>Select Compound:</label>
           <Select
             options={compoundOptions}
+            styles={selectStyles}
             value={compoundOptions[currentIndex] || null}
             onChange={(selected) => {
               const index = compoundOptions.findIndex(opt => opt.value === selected.value);
@@ -439,9 +535,10 @@ const handleExportPeakList = async () => {
 <div
   style={{
     marginTop: '12px',
-    border: '1px solid #ccc',
+    border: `1px solid ${theme.border}`,
     borderRadius: '8px',
-    background: '#fff',
+    background: theme.panel,
+    color: theme.text,
     display: 'flex',
     flexDirection: 'column'
   }}
@@ -452,8 +549,9 @@ const handleExportPeakList = async () => {
       justifyContent: 'space-between',
       alignItems: 'center',
       padding: '8px 10px',
-      borderBottom: '1px solid #eee',
-      background: '#f9fafb'
+      borderBottom: `1px solid ${theme.border}`,
+      background: theme.panelLite, 
+      color: theme.text
     }}
   >
     <h4 style={{ fontSize: '13px', margin: 0 }}>Manual QA Flags</h4>
@@ -493,6 +591,7 @@ const handleExportPeakList = async () => {
                       type="checkbox"
                       checked={!!flags[flag]}
                       onChange={() => toggleFlag(key, flag)}
+                      style={checkboxStyle}
                     />
                   </td>
                 ))}
@@ -513,11 +612,13 @@ const handleExportPeakList = async () => {
 {selectedGroup && (
   <div
     style={{
-      background: '#fff',
+      background: theme.panel, 
+      color: theme.text,
       padding: '12px',
       borderRadius: '12px',
       marginTop: '12px',
-      boxShadow: '0 2px 5px rgba(0,0,0,0.1)'
+      boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
+      border: `1px solid ${theme.border}`
     }}
   >
     <h4 style={{ textAlign: 'center', fontSize: 14, marginBottom: 10 }}>Grouped Entries</h4>
@@ -529,7 +630,7 @@ const handleExportPeakList = async () => {
         borderSpacing: '0 4px'
       }}
     >
-      <thead style={{ backgroundColor: '#ececec' }}>
+      <thead style={{ backgroundColor: theme.tableHeader }}>
         <tr>
           <th style={thStyle}>Tag</th>
           <th style={thStyle}>Adduct</th>
@@ -538,7 +639,7 @@ const handleExportPeakList = async () => {
       </thead>
       <tbody>
         {selectedGroup.map((row, idx) => (
-          <tr key={idx} style={{ backgroundColor: idx % 2 === 0 ? '#fafafa' : '#f0f0f0' }}>
+          <tr key={idx} style={{ backgroundColor: idx % 2 === 0 ? theme.tableRowA : theme.tableRowB, color: theme.text }}>
             <td style={tdStyle}>{row.tag}</td>
             <td style={tdStyle}>{row.adduct}</td>
             <td style={tdStyle}>
@@ -553,8 +654,8 @@ const handleExportPeakList = async () => {
       onClick={() => setSelectedGroup(groupedByID[currentIndex]?.group)}
       style={{
         marginTop: 10, width: '100%', padding: 8, borderRadius: 6, fontWeight: 'bold',
-        fontSize: 13, background: 'linear-gradient(to right, #a7cce5, #bfe1f2)', color: '#333',
-        border: 'none', cursor: 'pointer'
+        fontSize: 13, background: 'linear-gradient(to right, #a7cce5, #bfe1f2)', color: theme.text,
+        border: `1px solid ${theme.border}`, cursor: 'pointer'
       }}
     >
       📊 Plot Selected
@@ -564,8 +665,9 @@ const handleExportPeakList = async () => {
       onClick={handleSaveSinglePlot}
       style={{
         padding: 8, marginTop: 10, borderRadius: 6,
-        background: 'linear-gradient(to right, #f6d365, #fda085)',
-        border: 'none', color: '#333', fontWeight: 'bold', cursor: 'pointer', width: '100%'
+        background: `linear-gradient(to bottom, ${theme.btnGradFrom}, ${theme.btnGradTo})`,
+        color: theme.accentText,
+        border: `1px solid ${theme.border}`, color: theme.text, fontWeight: 'bold', cursor: 'pointer', width: '100%'
       }}
     >
       💾 Save Plot
@@ -575,8 +677,8 @@ const handleExportPeakList = async () => {
       onClick={handleExportSummaryPDF}
       style={{
         padding: 8, marginTop: 10, borderRadius: 6,
-        background: 'linear-gradient(to right, #f6d365, #fda085)',
-        border: 'none', color: '#333', fontWeight: 'bold', cursor: 'pointer', width: '100%'
+        background: `linear-gradient(to bottom, ${theme.btnGradFrom}, ${theme.btnGradTo})`,
+        border: `1px solid ${theme.border}`, color: theme.text, fontWeight: 'bold', cursor: 'pointer', width: '100%',
       }}
     >
       📝 Export Summary PDF
@@ -611,8 +713,8 @@ const handleExportPeakList = async () => {
     fontSize: '12px',
     fontWeight: 600,
     borderRadius: 5,
-    background: 'linear-gradient(to bottom, #a7cce5, #bfe1f2)',
-    color: '#1a1a1a',
+    background: `linear-gradient(to bottom, ${theme.btnGradFrom}, ${theme.btnGradTo})`,
+    color:  theme.text,
     boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
     cursor: 'pointer'
   }}
@@ -626,6 +728,7 @@ const handleExportPeakList = async () => {
     compoundGroup={selectedGroup || []}
     onExportReady={setExportPayload}
     onFilenameChange={setSinglePlotFilename}
+    theme={theme}
   />
 </div>
 </div> {/* ← close the flex container (left + right) */}
@@ -638,13 +741,14 @@ const handleExportPeakList = async () => {
       bottom: 20,
       left: '50%',
       transform: 'translateX(-50%)',
-      backgroundColor: '#333',
-      color: '#fff',
+      backgroundColor: theme.toastBg,
+      color: theme.toastText,
       padding: '10px 20px',
       borderRadius: 5,
       fontSize: 14,
       boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
-      zIndex: 1000
+      zIndex: 1000,
+      border: `1px solid ${theme.border}`
     }}
   >
     {toastMessage}
