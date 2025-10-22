@@ -241,7 +241,7 @@ const handleSaveState = async () => {
 
       <table style={{ width: '90%', margin: 'auto', borderCollapse: 'collapse' }}>
         <thead>
-          <tr style={{ backgroundColor: '#f2f2f2' }}>
+          <tr style={{ backgroundColor: theme.bg, color: theme.text }}>
             <th style={{ border: `1px solid ${theme.border}`, padding: '8px' }}>File Name</th>
             <th style={{ border: `1px solid ${theme.border}`, padding: '8px' }}>Adduct</th>
             <th style={{ border: `1px solid ${theme.border}`, padding: '8px' }}>Tag</th>
