@@ -32,6 +32,20 @@ export const loadExtractionConfig = async (workingDir) => {
   }
 };
 
+// kick off background extract+prescreen; backend returns { job_id }
+export const startExtractPrescreen = (working_directory) => {
+  return axios.post(`${API_BASE}/start_extract_prescreen`, { working_directory });
+};
+
+// poll job status; backend returns { state, progress, message, done, error }
+export const getJobStatus = (job_id) => {
+  return axios.get(`${API_BASE}/job_status`, { params: { job_id } });
+};
+
+// (optional) cancel a running job
+export const cancelJob = (job_id) => {
+  return axios.post(`${API_BASE}/cancel_job`, { job_id });
+};
 
 export const extractData = (payload) => {
   return axios.post(`${API_BASE}/extract_data`, payload, {

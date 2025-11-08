@@ -1,13 +1,198 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { saveState, loadState, generateTable } from '../api/api';
 import { useAppState } from '../context/AppStateContext';
 import { useNavigate } from 'react-router-dom';
 
+
+// --- dark mode support (inline, no CSS files) ---
+const usePrefersDark = () => {
+  const [isDark, setIsDark] = useState(
+    typeof window !== 'undefined' &&
+      window.matchMedia &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches
+  );
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = (e) => setIsDark(e.matches);
+    // addEventListener is modern; addListener is older WebKit
+    mq.addEventListener ? mq.addEventListener('change', onChange) : mq.addListener(onChange);
+    return () => {
+      mq.removeEventListener ? mq.removeEventListener('change', onChange) : mq.removeListener(onChange);
+    };
+  }, []);
+  return isDark;
+};
+
+const makeTheme = (isDark) =>
+  isDark
+    ? {
+        bg: '#0f172a',
+        panel: '#0b1220',
+        panelLite: '#111827',
+        text: '#e5e7eb',
+        muted: '#9ca3af',
+        border: '#334155',
+        tableHeader: '#111827',
+        inputBg: '#0b1220',
+        inputText: '#e5e7eb',
+        btnBg: '#1f2937',
+        btnText: '#e5e7eb',
+        dangerText: '#ff7b7b'
+      }
+    : {
+        bg: '#e0f4f7',
+        panel: '#ffffff',
+        panelLite: '#f0faff',
+        text: '#111827',
+        muted: '#374151',
+        border: '#D1D5DB',
+        tableHeader: '#f2f2f2',
+        inputBg: '#ffffff',
+        inputText: '#111827',
+        btnBg: '#a7cce5',
+        btnText: '#111827',
+        dangerText: 'red'
+      };
+
+ /** Inline Adduct multi-select dropdown
+ * - stays open while toggling checkboxes
+ * - closes on Done
+ * - closes on outside click
+ */
+function AdductPicker({
+  theme,
+  value,
+  onChange,
+  positiveOptions = ["[M+H]+","[M+Na]+","[M+K]+","[M+NH4]+","[M+2H]2+"],
+  negativeOptions = ["[M-H]-","[M+Cl]-","[M+FA-H]-","[M-2H]2-"]
+}) {
+  const [open, setOpen] = useState(false);
+  const panelRef = useRef(null);
+  const btnRef = useRef(null);
+
+  useEffect(() => {
+    function onDocClick(e) {
+      if (
+        panelRef.current &&
+        !panelRef.current.contains(e.target) &&
+        btnRef.current &&
+        !btnRef.current.contains(e.target)
+      ) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+
+  const total =
+    (value?.positive?.length || 0) + (value?.negative?.length || 0);
+  const label = total ? `Adducts (${total})` : 'Select Adduct/Adducts';
+
+  const toggle = (pol, adduct) => {
+    const cur = new Set(value?.[pol] || []);
+    if (cur.has(adduct)) cur.delete(adduct);
+    else cur.add(adduct);
+    onChange?.({ ...value, [pol]: Array.from(cur) });
+  };
+
+  return (
+    <div style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          padding: '8px 12px',
+          borderRadius: 6,
+          border: `1px solid ${theme.border}`,
+          background: theme.btnBg,
+          color: theme.btnText
+        }}
+      >
+        {label}
+      </button>
+
+      {open && (
+        <div
+          ref={panelRef}
+          style={{
+            position: 'absolute',
+            top: '110%',
+            zIndex: 20,
+            minWidth: 420,
+            border: `1px solid ${theme.border}`,
+            borderRadius: 8,
+            padding: 12,
+            background: theme.panel,
+            color: theme.text,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.12)'
+          }}
+        >
+          <div style={{ display: 'flex', gap: 24 }}>
+            <section style={{ flex: 1, minWidth: 200 }}>
+              <h4 style={{ margin: '4px 0 8px' }}>Positive</h4>
+              <div style={{ maxHeight: 240, overflow: 'auto', paddingRight: 4 }}>
+                {positiveOptions.map((a) => (
+                  <label key={a} style={{ display: 'flex', gap: 8, marginBottom: 6, alignItems: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={value?.positive?.includes(a) || false}
+                      onChange={() => toggle('positive', a)}
+                    />
+                    <span>{a}</span>
+                  </label>
+                ))}
+              </div>
+            </section>
+            <section style={{ flex: 1, minWidth: 200 }}>
+              <h4 style={{ margin: '4px 0 8px' }}>Negative</h4>
+              <div style={{ maxHeight: 240, overflow: 'auto', paddingRight: 4 }}>
+                {negativeOptions.map((a) => (
+                  <label key={a} style={{ display: 'flex', gap: 8, marginBottom: 6, alignItems: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={value?.negative?.includes(a) || false}
+                      onChange={() => toggle('negative', a)}
+                    />
+                    <span>{a}</span>
+                  </label>
+                ))}
+              </div>
+            </section>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+            <button
+              type="button"
+              onClick={() => onChange?.({ positive: [], negative: [] })}
+              style={{ border: `1px solid ${theme.border}`, borderRadius: 6, padding: '6px 10px', background: 'transparent', color: theme.text }}
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              style={{ border: `1px solid ${theme.border}`, borderRadius: 6, padding: '6px 10px', background: theme.btnBg, color: theme.btnText }}
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const LandingPage = () => {
   const { appState, updateAppState } = useAppState();
   const [draggedRowIndex, setDraggedRowIndex] = useState(null);
+  const isDark = usePrefersDark();
+  const theme = makeTheme(isDark);
+  const [globalAdducts, setGlobalAdducts] = useState({ positive: [], negative: [] });
+  const [isGenerating, setIsGenerating] = useState(false);
 
-  
   useEffect(() => {
   if (appState.working_directory && mzmlFiles.length === 0) {
     setWorkingDirectory(appState.working_directory || '');
@@ -30,7 +215,7 @@ const LandingPage = () => {
 
 
   const navigate = useNavigate();
-  const [workingDirectory, setWorkingDirectory] = useState('');
+  const [workingDirectory, setWorkingDirectory] = useState("/app/uploads/");
   const [compoundCSV, setCompoundCSV] = useState(null);
   const [mzmlFiles, setMzmlFiles] = useState([]);
   const [tags, setTags] = useState({});
@@ -60,25 +245,32 @@ const LandingPage = () => {
   };
 
 const handleSaveState = async () => {
-  const compoundName = compoundCSV?.name || '';
+  // 1) Build mzML entries WITHOUT per-file adducts
   const mzmlData = mzmlFiles.map(file => ({
     file: file.name,
-    tag: tags[file.name] || '',
-    adduct: adductSelections[file.name] || '[M+H]+'
+    tag: tags[file.name] || ''
   }));
 
-  const updatedState = {
-    working_directory: workingDirectory,
-    compound_csv: compoundName,
-    mzml_files: mzmlData
+  // 2) Build payload INCLUDING the two flat adduct keys
+  const payload = {
+    working_directory: workingDirectory || "/app/uploads",
+    compound_csv: compoundCSV?.name || '',
+    mzml_files: mzmlData,
+    // 👇 send global selections (from your AdductPicker state)
+    positive_adducts: globalAdducts?.positive || [],
+    negative_adducts: globalAdducts?.negative || []
   };
 
-  // First update React context
-  updateAppState(updatedState);
+  // 3) Update context (optional), then save
+  updateAppState({
+    ...payload,
+    adducts: { positive: payload.positive_adducts, negative: payload.negative_adducts }
+  });
+
 
   // Then save to backend
   try {
-    const res = await saveState({ ...appState, ...updatedState });
+    await saveState(payload);             // <-- sends exactly what backend expects
     alert("State updated and saved successfully!");
   } catch (err) {
     console.error("Save failed:", err);
@@ -115,12 +307,21 @@ const handleSaveState = async () => {
   };
 
   const handleGenerateTable = async () => {
+    const payload = { workingDirectory };
+
+    console.log("[Generate] clicked with payload:", payload);
+    setIsGenerating(true);
     try {
       const res = await generateTable({workingDirectory});
-      alert('Table generated successfully!');
+      console.log("Generate response:", res?.data);
+      alert(res?.data?.message || "Table generated successfully!");
     } catch (err) {
-      console.error("Table generation failed:", err);
-      alert("Failed to generate table.");
+      const data = err?.response?.data;
+      console.error("[Generate] failed:", err?.message, data);
+      alert("Generate failed:\n" +
+      (data?.error || err?.message || "Unknown error"));
+    }finally {
+    setIsGenerating(false);
     }
   };
  
@@ -139,13 +340,13 @@ const handleSaveState = async () => {
 };
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#e0f4f7', fontFamily: 'sans-serif' }}>
-      <div className="header" style={{ textAlign: 'center', backgroundColor: '#f0f0f0', padding: '20px' }}>
+    <div className="min-h-screen" style={{ backgroundColor: theme.bg, fontFamily: 'sans-serif' }}>
+      <div className="header" style={{ textAlign: 'center', backgroundColor: theme.panelLite, padding: '20px' }}>
         <img src="/images/Title.jpg" alt="Title Image" style={{ maxWidth: '100%', height: '350px', margin: 'auto' }} />
         <h1>Mass Spectrometry Data Pre-screening</h1>
       </div>
 
-      <div className="intro" style={{ padding: '20px', textAlign: 'center' }}>
+      <div className="intro" style={{ padding: '20px', textAlign: 'center', color: theme.muted }}>
         <p>
           An application intended to give the user a first look into raw mass-spectrometry data. This currently means that,
           given the input of data files and a list of masses of known or unknown compounds, the application is going to
@@ -154,13 +355,13 @@ const handleSaveState = async () => {
       </div>
 
       <div className="data-config" style={{
-        padding: '20px', backgroundColor: '#ffffff', margin: '20px auto', borderRadius: '12px',
-        boxShadow: '0 6px 12px rgba(0, 0, 0, 0.15)', border: '2px solid #cceeff', maxWidth: '90%', width: 'fit-content'
+        padding: '20px', backgroundColor: theme.panel, color: theme.text, margin: '20px auto', borderRadius: '12px',
+        boxShadow: '0 6px 12px rgba(0, 0, 0, 0.15)', border: `2px solid ${theme.border}`, maxWidth: '90%', width: 'fit-content'
       }}>
         <h2>Data Configuration</h2>
 
         <div style={{ marginBottom: '10px' }}>
-          <details style={{ background: '#f0faff', padding: '10px', borderRadius: '8px', border: '1px solid #cceeff' }}>
+          <details style={{ background: theme.panelLite, color: theme.text, padding: '10px', borderRadius: '8px', border: '1px solid #cceeff' }}>
             <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>ℹ️ Instructions</summary>
             <ol style={{ paddingLeft: '20px', marginTop: '10px' }}>
               <li>Set the <strong>Working Directory</strong> by pasting the full path containing the Compound CSV and mzML files.</li>
@@ -175,23 +376,23 @@ const handleSaveState = async () => {
         </div>
 
         <label>Working Directory:</label>
-        <input type="text" value={workingDirectory} onChange={(e) => setWorkingDirectory(e.target.value)} style={{ width: '100%' }} />
+        <input type="text" value="/app/uploads/" disabled style={{ width: '100%',  backgroundColor: theme.inputBg, color: theme.inputText, border: `1px solid ${theme.border}`, borderRadius: 6  }} />
 
         <label>Compound CSV:</label>
-        <input type="file" accept=".csv" onChange={(e) => setCompoundCSV(e.target.files[0])} />
+        <input type="file" accept=".csv" onChange={(e) => setCompoundCSV(e.target.files[0])} style={{ backgroundColor: theme.panelLite, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 6 }} />
 
         <label>mzML Files:</label>
-        <input type="file" accept=".mzML" multiple onChange={(e) => setMzmlFiles([...e.target.files])} />
-
+        <input type="file" accept=".mzML" multiple onChange={(e) => setMzmlFiles([...e.target.files])} style={{ backgroundColor: theme.panelLite, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 6 }} />
+        
+         <AdductPicker theme={theme} value={globalAdducts} onChange={setGlobalAdducts} />
       </div>
 
       <table style={{ width: '90%', margin: 'auto', borderCollapse: 'collapse' }}>
         <thead>
-          <tr style={{ backgroundColor: '#f2f2f2' }}>
-            <th style={{ border: '1px solid #ddd', padding: '8px' }}>File Name</th>
-            <th style={{ border: '1px solid #ddd', padding: '8px' }}>Adduct</th>
-            <th style={{ border: '1px solid #ddd', padding: '8px' }}>Tag</th>
-            <th style={{ border: '1px solid #ddd', padding: '8px' }}>Actions</th>
+          <tr style={{ backgroundColor: theme.bg, color: theme.text }}>
+            <th style={{ border: `1px solid ${theme.border}`, padding: '8px' }}>File Name</th>
+            <th style={{ border: `1px solid ${theme.border}`, padding: '8px' }}>Tag</th>
+            <th style={{ border: `1px solid ${theme.border}`, padding: '8px' }}>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -207,30 +408,19 @@ const handleSaveState = async () => {
                 updatedFiles.splice(idx, 0, dragged);
                 setMzmlFiles(updatedFiles);
               }}
-              style={{ border: '1px solid #ddd', padding: '8px', cursor: 'move' }}
+              style={{ border: `1px solid ${theme.border}`, padding: '8px', cursor: 'move' }}
              >
-              <td style={{ border: '1px solid #ddd', padding: '8px' }}>{file.name}</td>
-              <td style={{ border: '1px solid #ddd', padding: '8px' }}>
-                <select
-                  value={adductSelections[file.name] || ''}
-                  onChange={(e) => setAdductSelections(prev => ({ ...prev, [file.name]: e.target.value }))}
-                  style={{ width: '100%', padding: '5px' }}
-                >
-                  {adducts.map((adduct, i) => (
-                    <option key={i} value={adduct}>{adduct}</option>
-                  ))}
-                </select>
-              </td>
-              <td style={{ border: '1px solid #ddd', padding: '8px' }}>
+              <td style={{ border: `1px solid ${theme.border}`, padding: '8px' }}>{file.name}</td>
+              <td style={{ border: `1px solid ${theme.border}`, padding: '8px' }}>
                 <input
                   type="text"
                   value={tags[file.name] || ''}
                   onChange={(e) => setTags(prev => ({ ...prev, [file.name]: e.target.value }))}
-                  style={{ width: '100%', padding: '5px' }}
+                  style={{ width: '100%', padding: '5px', backgroundColor: theme.inputBg, color: theme.inputText, border: `1px solid ${theme.border}`, borderRadius: 6, userSelect: 'text' }}
                 />
               </td>
-              <td style={{ border: '1px solid #ddd', padding: '8px' }}>
-		              <button onClick={() => handleDeleteRow(file.name)} style={{ color: 'red' }}>Delete</button>
+              <td style={{ border: '1px solid ${theme.border}', padding: '8px' }}>
+                <button onClick={() => handleDeleteRow(file.name)} style={{ color: theme.dangerText, background: 'transparent', border: `1px solid ${theme.border}`, borderRadius: 6, padding: '6px 10px' }}>Delete</button>
 	            </td>
             </tr>
           ))}
@@ -238,13 +428,13 @@ const handleSaveState = async () => {
       </table>
 
       <div style={{ display: 'flex', justifyContent: 'flex-start', maxWidth: '90%', margin: '20px auto' }}>
-        <button onClick={handleSaveState} style={{ padding: '10px 15px', marginRight: '5px', borderRadius: '5px', background: 'linear-gradient(to bottom, #a7cce5, #bfe1f2)' }}>Save State</button>
-        <button onClick={handleLoadState} style={{ padding: '10px 15px', marginRight: '5px', borderRadius: '5px', background: 'linear-gradient(to bottom, #a7cce5, #bfe1f2)' }}>Load State</button>
-        <button onClick={handleGenerateTable} style={{ padding: '10px 15px', borderRadius: '5px', background: 'linear-gradient(to bottom, #a7cce5, #bfe1f2)' }}>Generate Table</button>
+        <button onClick={handleSaveState} style={{ padding: '10px 15px', marginRight: '5px', borderRadius: '5px', background: theme.btnBg, color: theme.btnText, border: `1px solid ${theme.border}` }}>Save State</button>
+        <button onClick={handleLoadState} style={{ padding: '10px 15px', marginRight: '5px', borderRadius: '5px', background: theme.btnBg, color: theme.btnText, border: `1px solid ${theme.border}` }}>Load State</button>
+        <button onClick={handleGenerateTable} disabled={isGenerating} style={{ padding: '10px 15px', borderRadius: '5px', background: theme.btnBg, color: theme.btnText, border: `1px solid ${theme.border}`, opacity: isGenerating ? 0.7 : 1, cursor: isGenerating ? 'not-allowed' : 'pointer' }}>{isGenerating ? 'Generating…' : 'Generate Table'}</button>
       </div>
 
       <div style={{ textAlign: 'right', maxWidth: '90%', margin: 'auto', marginTop: '20px' }}>
-        <button onClick={() => navigate('/extraction')} style={{ padding: '10px 15px', borderRadius: '5px', background: 'linear-gradient(to bottom, #a7cce5, #bfe1f2)' }}>
+        <button onClick={() => navigate('/extraction')} style={{ padding: '10px 15px', borderRadius: '5px', background: theme.btnBg, color: theme.btnText, border: `1px solid ${theme.border}` }}>
           Go to Extraction & Prescreening
         </button>
       </div>

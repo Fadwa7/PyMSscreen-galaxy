@@ -19,7 +19,7 @@ importlib-metadata
 importlib-resources
 itsdangerous
 jinja2
-kaleido
+kaleido==0.2.1
 kiwisolver
 MarkupSafe
 matplotlib
@@ -28,7 +28,7 @@ numpy
 packaging
 pandas
 pillow
-plotly
+plotly>=5,<6
 pyopenms
 pyparsing
 PySocks
@@ -47,3 +47,4 @@ zipp
 zope.event
 zope.interface
 gunicorn
+tqdm

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Select from 'react-select';
 import axios from 'axios';
 import { useAppState } from '../context/AppStateContext';
@@ -8,8 +8,120 @@ import { exportSummaryPDF } from '../api/api';
 import { saveQAFlags } from '../api/api';
 import { useNavigate } from 'react-router-dom';
 
+// --- dark mode support (inline, no CSS files) ---
+const usePrefersDark = () => {
+  const [isDark, setIsDark] = React.useState(
+    typeof window !== 'undefined' &&
+      window.matchMedia &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches
+  );
+  React.useEffect(() => {
+    if (!window.matchMedia) return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = (e) => setIsDark(e.matches);
+    mq.addEventListener ? mq.addEventListener('change', onChange) : mq.addListener(onChange);
+    return () => {
+      mq.removeEventListener ? mq.removeEventListener('change', onChange) : mq.removeListener(onChange);
+    };
+  }, []);
+  return isDark;
+};
+
+const makeTheme = (isDark) =>
+  isDark
+    ? {
+        bg: '#0f172a',
+        panel: '#0b1220',
+        panelLite: '#111827',
+        text: '#e5e7eb',
+        muted: '#9ca3af',
+        border: '#334155',
+        leftPane: '#0b1220',
+        leftPaneBorder: '#334155',
+        tableHeader: '#111827',
+        tableRowA: '#0e182b',
+        tableRowB: '#0b1220',
+        helpBg: '#0b1220',
+        helpBorder: '#334155',
+        toastBg: '#1f2937',
+        toastText: '#e5e7eb',
+        btnGradFrom: '#2b8dd8',
+        btnGradTo: '#9bd0ef',
+        accentText: '#e5e7eb'
+      }
+    : {
+        bg: '#ffffff',
+        panel: '#ffffff',
+        panelLite: '#f9f9f9',
+        text: '#1f2937',
+        muted: '#374151',
+        border: '#e5e7eb',
+        leftPane: '#f9f9f9',
+        leftPaneBorder: '#cccccc',
+        tableHeader: '#ececec',
+        tableRowA: '#fafafa',
+        tableRowB: '#f0f0f0',
+        helpBg: '#f0faff',
+        helpBorder: '#cceeff',
+        toastBg: '#333333',
+        toastText: '#ffffff',
+        btnGradFrom: '#a7cce5',
+        btnGradTo: '#bfe1f2',
+        accentText: '#1a1a1a'
+      };
+
+const buttonStyle = (theme, opts = {}) => {
+  const {
+    variant = 'primary',     // 'primary' | 'warning' | 'neutral'
+    disabled = false,
+    full = false,            // full width
+    size = 'md',             // 'sm' | 'md' | 'lg'
+  } = opts;
+
+  const sizes = {
+    sm: { padding: '6px 10px', fontSize: 12, borderRadius: 6 },
+    md: { padding: '8px 12px', fontSize: 13, borderRadius: 8 },
+    lg: { padding: '12px 16px', fontSize: 16, borderRadius: 10 },
+  };
+
+  let bg;
+  if (variant === 'warning') {
+    bg = 'linear-gradient(to right, #f6d365, #fda085)';
+  } else if (variant === 'neutral') {
+    bg = `linear-gradient(to bottom, ${theme.panelLite}, ${theme.panel})`;
+  } else {
+    // primary
+    bg = `linear-gradient(to bottom, ${theme.btnGradFrom}, ${theme.btnGradTo})`;
+  }
+
+  return {
+    ...sizes[size],
+    width: full ? '100%' : undefined,
+    fontWeight: 700,
+    background: bg,
+    color: theme.accentText,
+    border: `1px solid ${theme.border}`,
+    boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.5 : 1,
+    transition: 'filter .15s ease',
+  };
+};
+
+// Clear checkbox appearance: bigger + theme color
+const checkboxStyle = {
+  width: 18,
+  height: 18,
+  accentColor: '#60a5fa',            // blue in dark mode is very visible
+  // if you prefer to follow theme strictly, use theme.ok or a brand color
+  // accentColor: theme.ok,
+};
+
 const PlottingPage = () => {
   const { appState } = useAppState();
+  const isDark = usePrefersDark();
+  const theme = React.useMemo(() => makeTheme(isDark), [isDark]);
+  const selectedIdRef = useRef(null);
   const [compounds, setCompounds] = useState([]);
   const navigate = useNavigate();
   const [summaryData, setSummaryData] = useState([]);
@@ -25,9 +137,50 @@ const PlottingPage = () => {
   const [exportPayload, setExportPayload] = useState(null);
   const [qaFlags, setQaFlags] = useState({});
   const [toastMessage, setToastMessage] = useState('');
+  const qaFlagsCache = useRef({});
   const isTrue = (val) => val === true || val === 'true' || val === 'True' || val === 1 || val === '1';
   const isSingleTagSelected = () => selectedTags.length === 1;
 
+  const selectStyles = React.useMemo(() => ({
+  control: (base, state) => ({
+    ...base,
+    backgroundColor: theme.panelLite,
+    color: theme.text,
+    borderColor: theme.border,
+    boxShadow: state.isFocused ? `0 0 0 1px ${theme.border}` : base.boxShadow,
+    '&:hover': { borderColor: theme.muted }
+  }),
+  menu: (base) => ({
+    ...base,
+    backgroundColor: theme.panel,
+    color: theme.text,
+    border: `1px solid ${theme.border}`,
+    zIndex: 5
+  }),
+  option: (base, state) => ({
+    ...base,
+    backgroundColor: state.isSelected
+      ? theme.tableRowB
+      : state.isFocused
+      ? theme.tableRowA
+      : theme.panel,
+    color: theme.text
+  }),
+  input: (base) => ({ ...base, color: theme.text }),
+  singleValue: (base) => ({ ...base, color: theme.text }),
+  placeholder: (base) => ({ ...base, color: theme.muted }),
+  multiValue: (base) => ({ ...base, backgroundColor: theme.tableRowB }),
+  multiValueLabel: (base) => ({ ...base, color: theme.text }),
+  multiValueRemove: (base) => ({
+    ...base,
+    color: theme.text,
+    ':hover': { backgroundColor: theme.border, color: theme.text }
+  }),
+  dropdownIndicator: (base) => ({ ...base, color: theme.muted }),
+  clearIndicator: (base) => ({ ...base, color: theme.muted })
+}), [theme]);
+
+   
   const handleUpdateQA = () => {
     console.log("📤 Submitting QA flags:", qaFlags);  // still useful here
     saveQAFlags(appState.working_directory, qaFlags)
@@ -78,20 +231,33 @@ const PlottingPage = () => {
       }
     });
     const result = Object.entries(grouped).map(([id, group]) => ({ id, group }));
+
     setGroupedByID(result);
+    const prevSelectedId = selectedIdRef.current || (compoundOptions[currentIndex]?.value);
     setCompoundOptions(result.map(entry => {
       const first = entry.group[0];
-      const isKnown = first.known === 'known';
-      const label = isKnown
-        ? `${first.ID} - ${first.Name || first.ID}` // Known: show ID and Name
-        : `${first.ID} - ${parseFloat(first.mz).toFixed(4)}`
+      const structureRow = entry.group.find(r => {
+        const k = (r.known ?? '').toString().trim().toLowerCase();
+        const hasName = r.Name && String(r.Name).trim().length > 0;
+        return k === 'structure' && hasName;
+      });
+      const label =  structureRow
+        ? `${entry.id} - ${String(structureRow.Name).trim()}`
+        : `${entry.id} - ${Number(first?.mz ?? 0).toFixed(4)}`;
       return {
         value: entry.id,
         label
       };
     }));
+
+    let newIndex = 0;
+    if (prevSelectedId) {
+      const idx = result.findIndex(e => e.id.toString() === prevSelectedId.toString());
+      if (idx !== -1) newIndex = idx;
+    }
    
-    setCurrentIndex(0);
+    setCurrentIndex(newIndex);
+     selectedIdRef.current = result[newIndex]?.id?.toString() || null;
   }, [compounds, selectedTags, selectedAdducts]);
 
   const extractUnique = (data, field) => {
@@ -127,6 +293,7 @@ const PlottingPage = () => {
     const selected = groupedByID.find(entry => entry.id === compoundOptions[currentIndex]?.value);
     if (selected) {
       setSelectedGroup(selected.group);
+      selectedIdRef.current = selected.id.toString();
       const flags = {};
       selected.group.forEach(row => {
         const key = `${row.ID}_${row.adduct}_${row.tag}`;
@@ -134,7 +301,8 @@ const PlottingPage = () => {
            s => s.ID === row.ID && s.adduct === row.adduct && s.tag === row.tag
         ) || {};
 
-        flags[key] = {
+        const cached = qaFlagsCache.current[key];
+        flags[key] = cached ? { ...cached } : {
           MS1_Exists: isTrue(summaryMatch.qa_ms1_exists),
           MS2_Exists: isTrue(summaryMatch.qa_ms2_exists),
           MS1_Intensity: isTrue(summaryMatch.qa_ms1_good_int),
@@ -149,14 +317,18 @@ const PlottingPage = () => {
   }, [currentIndex, compoundOptions, groupedByID]);
 
   const toggleFlag = (key, flag) => {
-    setQaFlags(prev => ({
+  setQaFlags(prev => {
+    const updated = {
       ...prev,
       [key]: {
         ...prev[key],
         [flag]: !prev[key][flag]
       }
-    }));
-  };
+    };
+    qaFlagsCache.current[key] = updated[key];  // store it persistently
+    return updated;
+  });
+};
 
 const handleExportPeakList = async () => {
   if (!appState?.working_directory || !selectedGroup || !isSingleTagSelected()) return;
@@ -275,242 +447,317 @@ const handleExportPeakList = async () => {
     }
   };
 
-  const thStyle = { padding: '6px', border: '1px solid #ddd', textAlign: 'left', fontWeight: '600', color: '#333' };
-  const tdStyle = { padding: '6px', border: '1px solid #ddd' };
+  const thStyle = { padding: '6px', border: `1px solid ${theme.border}`, textAlign: 'left', fontWeight: '600', color: theme.text, background: theme.tableHeader };
+  const tdStyle = { padding: '6px', border: `1px solid ${theme.border}`, color: theme.text };
   const plotButtonStyle = {
     padding: '6px 12px', fontSize: '12px', fontWeight: '600', borderRadius: '5px',
-    background: 'linear-gradient(to bottom, #a7cce5, #bfe1f2)', color: '#1a1a1a',
-    boxShadow: '0 2px 5px rgba(0,0,0,0.1)', cursor: 'pointer'
+    background: `linear-gradient(to bottom, ${theme.btnGradFrom}, ${theme.btnGradTo})`, color: theme.accentText,
+    boxShadow: '0 2px 5px rgba(0,0,0,0.1)', cursor: 'pointer', border: `1px solid ${theme.border}`
   };
 
   const exportPeakListButtonStyle = { // Missing definition for exportPeakListButtonStyle
-    background: 'linear-gradient(to bottom, #b7f2b7, #d2f3d2)',
-    color: '#1a1a1a',
+    background: `linear-gradient(to bottom, ${theme.btnGradFrom}, ${theme.btnGradTo})`,
+    color: theme.accentText,
+    border: `1px solid ${theme.border}`,
+    borderRadius: 5,
+    padding: '6px 12px'
   };
 
   
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '12px', backgroundColor: '#f2f2f2', fontWeight: 'bold', fontSize: '18px', textAlign: 'center' }}>
-        pyMSscreen Visualization Dashboard
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: theme.bg, color: theme.text }}>
+      <div style={{ padding: '12px', backgroundColor: theme.panelLite, borderBottom: `1px solid ${theme.border}`, fontWeight: 'bold', fontSize: '18px', textAlign: 'center' }}>
+         pyMSscreen Visualization Dashboard
       </div>
+      
+      {/* Plotting Help (collapsible) */}
+      <div style={{ padding: '8px 16px', textAlign: 'center', maxWidth: '90%', margin: '0 auto' }}>
+        <details style={{ background: theme.helpBg, padding: 10, borderRadius: 8, border: `1px solid ${theme.helpBorder}`, color: theme.text }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>
+            ℹ️ Plotting Page info
+          </summary>
+          <ul style={{ paddingLeft: 20, marginTop: 10, textAlign: 'left' }}>
+            <li><strong>Default grouping:</strong> plots are grouped by <em>all</em> tags and adducts. Use Tag/Adduct filters to change the grouping.</li>
+            <li><strong>Top EICs:</strong> the top <em>3 most intense</em> EIC traces are shown. Double-click a legend item to isolate its trace. Selecting the corresponding legend shows the <em>MS2 peak</em> line (if present).</li>
+            <li><strong>Relative intensity:</strong> toggles MS2/fragment axes between relative and absolute scales.</li>
+            <li><strong>Greyscale fragments:</strong> renders MS2 fragment sticks in greyscale.</li>
+            <li><strong>EIC colour fill:</strong> fills the EIC peak under the line.</li>
+            <li><strong>Publication mode:</strong> report-friendly styles; use the plot toolbar to download <em>SVG</em> or <em>PNG</em>.</li>
+          </ul>
+        </details>
+      </div>
+        
       <div style={{ display: 'flex', flex: 1 }}>
-        <div style={{ width: '340px', padding: '16px', overflow: 'auto', background: '#f9f9f9', borderRight: '2px solid #ccc', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ width: '340px', padding: '16px', overflow: 'auto', background: theme.leftPane, borderRight: `2px solid ${theme.leftPaneBorder}`, display: 'flex', flexDirection: 'column', color: theme.text }}>
           <h3 style={{ textAlign: 'center' }}>Settings Pane</h3>
 
+      {/* Settings Pane Help (collapsible) */}
+      <div style={{ margin: '8px 0' }}>
+        <details style={{ background: theme.helpBg, padding: 10, borderRadius: 8, border: `1px solid ${theme.helpBorder}`, color: theme.text }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>
+             Settings Pane info
+          </summary>
+          <ul style={{ paddingLeft: 20, marginTop: 10 }}>
+            <li><strong>Filter by Tag/Adduct:</strong> narrow the plotted group. Clearing filters returns to the full group.</li>
+            <li><strong>Save Plot:</strong> saves the current compound’s combined plot (format choice via the plot toolbar, not this button).</li>
+            <li><strong>Export Summary PDF:</strong> creates a quick visual overview of <em>all</em> grouped compounds.</li>
+            <li><strong>Export Peak List:</strong> enabled when exactly one Tag is selected; copies MS2 peaks for tools like <em>MetFrag</em>.</li>
+          </ul>
+        </details>
+      </div>
+
           <label>Filter by Tag:</label>
-          <Select isMulti options={tagOptions} onChange={setSelectedTags} />
+          <Select isMulti options={tagOptions} onChange={setSelectedTags} styles={selectStyles} />
 
           <label style={{ marginTop: '10px' }}>Filter by Adduct:</label>
-          <Select isMulti options={adductOptions} onChange={setSelectedAdducts} />
+          <Select isMulti options={adductOptions} onChange={setSelectedAdducts} styles={selectStyles} />
 
           <label style={{ marginTop: '10px' }}>Select Compound:</label>
           <Select
             options={compoundOptions}
+            styles={selectStyles}
             value={compoundOptions[currentIndex] || null}
             onChange={(selected) => {
               const index = compoundOptions.findIndex(opt => opt.value === selected.value);
-              if (index !== -1) setCurrentIndex(index);
+              if (index !== -1) {
+              setCurrentIndex(index);
+              selectedIdRef.current = selected.value;
+              }
             }}
           />
-          {/* Toast Message */}
-          {toastMessage && (
-            <div style={{
-              position: 'fixed',
-              bottom: '20px',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              backgroundColor: '#333',
-              color: '#fff',
-              padding: '10px 20px',
-              borderRadius: '5px',
-              fontSize: '14px',
-              boxShadow: '0 2px 5px rgba(0, 0, 0, 0.2)',
-              zIndex: 1000,
-            }}>
-              {toastMessage}
-           </div>
-            
-          )}
-            
+
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
             <button onClick={handlePrev} style={plotButtonStyle}>Previous</button>
             <button onClick={handleNext} style={plotButtonStyle}>Next</button>
           </div>
 
-          {selectedGroup && (
-            <>
-          <div style={{
-	     background: '#fff',
-	     padding: '12px',
-	     borderRadius: '12px',
-	     marginTop: '12px',
-	     boxShadow: '0 2px 5px rgba(0,0,0,0.1)'
-	  }}>
-	     <h4 style={{ textAlign: 'center', fontSize: '14px', marginBottom: '10px' }}>Grouped Entries</h4>
-	     <table style={{
-	       width: '100%',
-	       fontSize: '12px',
-	       borderCollapse: 'separate',
-	       borderSpacing: '0 4px'
-	     }}>
-	       <thead style={{ backgroundColor: '#ececec' }}>
-	        <tr>
-		  <th style={thStyle}>Tag</th>
-		  <th style={thStyle}>Adduct</th>
-		  <th style={thStyle}>
-        {selectedGroup[0]?.known === 'suspect' ? 'm/z' : 'Name'}
-      </th>
-	        </tr>
-	      </thead>
-	      <tbody>
-	        {selectedGroup.map((row, idx) => (
-		  <tr key={idx} style={{
-		    backgroundColor: idx % 2 === 0 ? '#fafafa' : '#f0f0f0',
-		    borderRadius: '6px'
-		  }}>
-		    <td style={tdStyle}>{row.tag}</td>
-		    <td style={tdStyle}>{row.adduct}</td>
-		    <td style={tdStyle}>
-          {selectedGroup[0]?.known === 'suspect'
-            ? parseFloat(row.mz).toFixed(4)
-            : row.Name}
-        </td>
-		  </tr>
-	        ))}
-	     </tbody>
-	   </table>
+         {/* Manual QA Flags (header pinned; table scrolls) */}
+<div
+  style={{
+    marginTop: '12px',
+    border: `1px solid ${theme.border}`,
+    borderRadius: '8px',
+    background: theme.panel,
+    color: theme.text,
+    display: 'flex',
+    flexDirection: 'column'
+  }}
+>
+  <div
+    style={{
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: '8px 10px',
+      borderBottom: `1px solid ${theme.border}`,
+      background: theme.panelLite, 
+      color: theme.text
+    }}
+  >
+    <h4 style={{ fontSize: '13px', margin: 0 }}>Manual QA Flags</h4>
+    <button
+      onClick={handleUpdateQA}
+      style={{ ...plotButtonStyle, fontSize: '11px', padding: '4px 10px', borderRadius: 5 }}
+    >
+      ✅ Update Summary Table
+    </button>
+  </div>
 
-	   <button onClick={() => setSelectedGroup(groupedByID[currentIndex]?.group)} style={{
-	      marginTop: '10px',
-	      width: '100%',
-	      padding: '8px',
-	      borderRadius: '6px',
-	      fontWeight: 'bold',
-	      fontSize: '13px',
-	      background: 'linear-gradient(to right, #a7cce5, #bfe1f2)',
-	      color: '#333',
-	      border: 'none',
-	      cursor: 'pointer'
-	   }}>
-	     📊 Plot Selected
-	   </button>
+  <div style={{ maxHeight: '230px', overflow: 'auto', padding: '8px' }}>
+    {selectedGroup && selectedGroup.length > 0 ? (
+      <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+        <thead>
+          <tr>
+            <th style={thStyle}>Tag</th>
+            <th style={thStyle}>Adduct</th>
+            <th style={thStyle}>MS1 Exists</th>
+            <th style={thStyle}>MS2 Exists</th>
+            <th style={thStyle}>MS1 Intensity</th>
+            <th style={thStyle}>S2N Ratio</th>
+            <th style={thStyle}>RT Align</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(selectedGroup || []).map((row, idx) => {
+            const key = `${row.ID}_${row.adduct}_${row.tag}`;
+            const flags = qaFlags[key] || {};
+            return (
+              <tr key={idx}>
+                <td style={tdStyle}>{row.tag}</td>
+                <td style={tdStyle}>{row.adduct}</td>
+                {['MS1_Exists','MS2_Exists','MS1_Intensity','S2N_ratio','RT_Alignment'].map(flag => (
+                  <td key={flag} style={{ ...tdStyle, textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={!!flags[flag]}
+                      onChange={() => toggleFlag(key, flag)}
+                      style={checkboxStyle}
+                    />
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    ) : (
+      <div style={{ textAlign: 'center', color: '#666', fontSize: 12, padding: 6 }}>
+        No compound selected
+      </div>
+    )}
+  </div>
+</div>
 
-	   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '14px' }}>
-	    <button onClick={handleSaveSinglePlot} style={{
-	      padding: '8px',
-	      borderRadius: '6px',
-	      background: 'linear-gradient(to right, #f6d365, #fda085)',
-	      border: 'none',
-	      color: '#333',
-	      fontWeight: 'bold',
-	      cursor: 'pointer'
-	    }}>
-	      💾 Save Plot
-	    </button>
+{/* Grouped Entries (single instance below QA flags) */}
+{selectedGroup && (
+  <div
+    style={{
+      background: theme.panel, 
+      color: theme.text,
+      padding: '12px',
+      borderRadius: '12px',
+      marginTop: '12px',
+      boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
+      border: `1px solid ${theme.border}`
+    }}
+  >
+    <h4 style={{ textAlign: 'center', fontSize: 14, marginBottom: 10 }}>Grouped Entries</h4>
+    <table
+      style={{
+        width: '100%',
+        fontSize: 12,
+        borderCollapse: 'separate',
+        borderSpacing: '0 4px'
+      }}
+    >
+      <thead style={{ backgroundColor: theme.tableHeader }}>
+        <tr>
+          <th style={thStyle}>Tag</th>
+          <th style={thStyle}>Adduct</th>
+          <th style={thStyle}>{selectedGroup[0]?.known === 'suspect' ? 'm/z' : 'Name'}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {selectedGroup.map((row, idx) => (
+          <tr key={idx} style={{ backgroundColor: idx % 2 === 0 ? theme.tableRowA : theme.tableRowB, color: theme.text }}>
+            <td style={tdStyle}>{row.tag}</td>
+            <td style={tdStyle}>{row.adduct}</td>
+            <td style={tdStyle}>
+              {selectedGroup[0]?.known === 'suspect' ? parseFloat(row.mz).toFixed(4) : row.Name}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
 
-	    <button onClick={handleExportSummaryPDF} style={{
-	      padding: '8px',
-	      borderRadius: '6px',
-	      background: 'linear-gradient(to right, #f6d365, #fda085)',
-	      border: 'none',
-	      color: '#333',
-	      fontWeight: 'bold',
-	      cursor: 'pointer'
-	    }}>
-	      📝 Export Summary PDF
-	    </button>
-	  </div>
-	</div>
+    <button
+      onClick={() => setSelectedGroup(groupedByID[currentIndex]?.group)}
+      style={{
+        marginTop: 10, width: '100%', padding: 8, borderRadius: 6, fontWeight: 'bold',
+        fontSize: 13, background: 'linear-gradient(to right, #a7cce5, #bfe1f2)', color: theme.text,
+        border: `1px solid ${theme.border}`, cursor: 'pointer'
+      }}
+    >
+      📊 Plot Selected
+    </button>
 
-                            
-            <div style={{ marginTop: '12px', maxHeight: '250px', overflow: 'auto', border: '1px solid #ccc', borderRadius: '8px', padding: '8px', background: '#fff' }}>
-                <h4 style={{ fontSize: '13px' }}>Manual QA Flags</h4>
-                <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr>
-                      <th style={thStyle}>Tag</th>
-                      <th style={thStyle}>Adduct</th>
-                      <th style={thStyle}>MS1 Exists</th>    
-                      <th style={thStyle}>MS2 Exists</th>
-                      <th style={thStyle}>MS1 Intensity</th>
-                      <th style={thStyle}>S2N Ratio</th>
-                      <th style={thStyle}>RT Align</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                                {selectedGroup.map((row, idx) => {
-                      const key = `${row.ID}_${row.adduct}_${row.tag}`;
-                      const flags = qaFlags[key] || {};
-                      return (
-                        <tr key={idx}>
-                          <td style={tdStyle}>{row.tag}</td>
-                          <td style={tdStyle}>{row.adduct}</td>
-                          {['MS1_Exists', 'MS2_Exists', 'MS1_Intensity', 'S2N_ratio', 'RT_Alignment'].map(flag => (
-                            <td key={flag} style={{ ...tdStyle, textAlign: 'center' }}>
-                              <input type="checkbox" checked={!!flags[flag]} onChange={() => toggleFlag(key, flag)} />
-                            </td>
-                          ))}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                <button onClick={handleUpdateQA} style={{ ...plotButtonStyle, marginTop: '8px', width: '100%' }}>✅ Update Summary Table</button>
-              </div>
+    <button
+      onClick={handleSaveSinglePlot}
+      style={{
+        padding: 8, marginTop: 10, borderRadius: 6,
+        background: `linear-gradient(to bottom, ${theme.btnGradFrom}, ${theme.btnGradTo})`,
+        color: theme.accentText,
+        border: `1px solid ${theme.border}`, color: theme.text, fontWeight: 'bold', cursor: 'pointer', width: '100%'
+      }}
+    >
+      💾 Save Plot
+    </button>
 
-              <button
-                onClick={handleExportPeakList}
-                disabled={!isSingleTagSelected()}
-                style={{
-                  ...exportPeakListButtonStyle,
-                  marginTop: '10px',
-                  width: '100%',
-                  opacity: isSingleTagSelected() ? 1 : 0.5,
-                  cursor: isSingleTagSelected() ? 'pointer' : 'not-allowed'
-                }}
-                title={
-                  isSingleTagSelected()
-                    ? 'Copy MS2 peak list to clipboard'
-                    : 'Select a single tag to enable MS2 export'
-                }
-              >
-                📋 Export Peak List
-              </button>
+    <button
+      onClick={handleExportSummaryPDF}
+      style={{
+        padding: 8, marginTop: 10, borderRadius: 6,
+        background: `linear-gradient(to bottom, ${theme.btnGradFrom}, ${theme.btnGradTo})`,
+        border: `1px solid ${theme.border}`, color: theme.text, fontWeight: 'bold', cursor: 'pointer', width: '100%',
+      }}
+    >
+      📝 Export Summary PDF
+    </button>
 
-            </>
-          )}
+    <button
+      onClick={handleExportPeakList}
+      disabled={!isSingleTagSelected()}
+      style={{
+        ...exportPeakListButtonStyle,
+        marginTop: 10,
+        width: '100%',
+        opacity: isSingleTagSelected() ? 1 : 0.5,
+        cursor: isSingleTagSelected() ? 'pointer' : 'not-allowed'
+      }}
+      title={
+        isSingleTagSelected()
+          ? 'Copy MS2 peak list to clipboard'
+          : 'Select a single tag to enable MS2 export'
+      }
+    >
+      📋 Export Peak List
+    </button>
+  </div>
+)}
 
-          <button
-            onClick={() => navigate('/')}
-            style={{
-              bottom: '10px',
-              left: '10px',
-              padding: '6px 12px',
-              fontSize: '12px',
-              fontWeight: '600',
-              borderRadius: '5px',
-              background: 'linear-gradient(to bottom, #a7cce5, #bfe1f2)',
-              color: '#1a1a1a',
-              boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
-              cursor: 'pointer',
-            }}
-          >
-            Back to Setup
-          </button>
-        </div>
-        
-        {/* Right Panel (Compound Plot area) */}
-        <div style={{ flex: 1, padding: '16px', overflowY: 'auto' }}>
-          <CompoundPlot
-            compoundGroup={selectedGroup || []}
-            onExportReady={setExportPayload}
-            onFilenameChange={setSinglePlotFilename}
-        />
-       </div>
-     </div>
-   </div>
-  );
+<button
+  onClick={() => navigate('/')}
+  style={{
+    marginTop: '12px',
+    padding: '6px 12px',
+    fontSize: '12px',
+    fontWeight: 600,
+    borderRadius: 5,
+    background: `linear-gradient(to bottom, ${theme.btnGradFrom}, ${theme.btnGradTo})`,
+    color:  theme.text,
+    boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
+    cursor: 'pointer'
+  }}
+>
+  Back to Setup
+</button>
+</div> {/* ← close LEFT pane */}
+
+<div style={{ flex: 1, padding: '16px', overflowY: 'auto' }}>
+  <CompoundPlot
+    compoundGroup={selectedGroup || []}
+    onExportReady={setExportPayload}
+    onFilenameChange={setSinglePlotFilename}
+    theme={theme}
+  />
+</div>
+</div> {/* ← close the flex container (left + right) */}
+
+{/* Global toast (one place only) */}
+{toastMessage && (
+  <div
+    style={{
+      position: 'fixed',
+      bottom: 20,
+      left: '50%',
+      transform: 'translateX(-50%)',
+      backgroundColor: theme.toastBg,
+      color: theme.toastText,
+      padding: '10px 20px',
+      borderRadius: 5,
+      fontSize: 14,
+      boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
+      zIndex: 1000,
+      border: `1px solid ${theme.border}`
+    }}
+  >
+    {toastMessage}
+  </div>
+ )}
+</div> 
+);
 };
+
+
 
 export default PlottingPage;
