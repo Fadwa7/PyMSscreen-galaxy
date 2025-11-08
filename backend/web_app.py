@@ -15,6 +15,11 @@ from typing import Tuple, Any
 from app.routes.pdf_export import register_pdf_export
 from app.jobs.job_store import create_job, update_job, load_status
 
+try:
+    import pyopenms as oms
+except Exception:
+    oms = None
+
 app = Flask(__name__)
 register_pdf_export(app)
 app.secret_key = 'supersecretkey'
@@ -50,7 +55,6 @@ def _parse_json_safely(resp, step_name: str):
     return True, payload
 
 def _post_and_check(step_name: str, url: str, payload: dict) -> Tuple[bool, Any]:
-    import requests
     try:
         resp = requests.post(url, json=payload, timeout=None)
     except requests.RequestException as e:
@@ -75,36 +79,117 @@ ADDUCT_MASS = {
 def resolve_path(p):
     return os.path.expanduser(p)
 
+def infer_polarity_from_name(path_or_name: str) -> str:
+    s = os.path.basename(path_or_name).lower()
+    if re.search(r'(?:^|[_\W])(pos|positive)(?:[_\W]|$)', s):
+        return "positive"
+    if re.search(r'(?:^|[_\W])(neg|negative)(?:[_\W]|$)', s):
+        return "negative"
+    return "unknown"
+
+def detect_polarity_mzml(path_to_mzml: str) -> str:
+    """
+    Returns 'positive', 'negative', or 'unknown' by reading mzML metadata.
+    Backstops to 'unknown' if pyopenms not available or file unreadable.
+    """
+    if oms is None:
+        return "unknown"
+    exp = oms.MSExperiment()
+    try:
+        oms.MzMLFile().load(path_to_mzml, exp)    
+        for sp in exp:
+            pol = sp.getInstrumentSettings().getPolarity()
+            if pol == oms.IonSource.Polarity.POSITIVE:
+                return "positive"
+            if pol == oms.IonSource.Polarity.NEGATIVE:
+                return "negative"
+    except Exception as e:
+      print(f"pyOpenMS load failed for {path_to_mzml}: {e}")
+    return infer_polarity_from_name(path_to_mzml)
+
 @app.route('/save_state', methods=['POST'])
 def save_state():
+    """
+    Save user configuration:
+      - working_directory (base path for relative files)
+      - compound_csv (absolute or relative to working_directory)
+      - mzml_files: [{ "file": <path>, "tag": <str> }, ...]
+      - adducts: {"positive": [...], "negative": [...]}
+
+    Writes state.json into working_directory and returns metadata.
+    """
     try:
-        data = request.get_json()
-        print(" Save request data:", data)
+        data = request.get_json(force=True) or {}
+        print("Save request data:", data)
+
+        # -- 1) Working directory
         working_directory = os.path.expanduser(data.get("working_directory", "."))
-
-        if not os.path.exists(working_directory):
+        if not os.path.isdir(working_directory):
             return jsonify({"error": "Invalid working directory"}), 400
+        working_directory = os.path.normpath(working_directory)
 
-        state = {
-            "working_directory": working_directory,
-            "compound_csv": os.path.join(working_directory, data.get("compound_csv", "")),
-            "mzml_files": [
-                {
-                    "file": os.path.join(working_directory, f.get("file")),
-                    "tag": f.get("tag", ""),
-                    "adduct": f.get("adduct", "")
-                }
-                for f in data.get("mzml_files", [])
-            ]
+        # -- 2) Compound CSV (absolute or relative to working_directory)
+        compound_csv_in = (data.get("compound_csv") or "").strip()
+        if compound_csv_in:
+            compound_csv = (compound_csv_in if os.path.isabs(compound_csv_in)
+                            else os.path.join(working_directory, compound_csv_in))
+            compound_csv = os.path.normpath(os.path.expanduser(compound_csv))
+        else:
+            compound_csv = ""
+
+        # -- 3) mzML files (each entry can be absolute or relative)
+        mzml_files = []
+        for f in (data.get("mzml_files") or []):
+            raw_path = (f.get("file") or "").strip()
+            if not raw_path:
+                continue
+            resolved = raw_path if os.path.isabs(raw_path) else os.path.join(working_directory, raw_path)
+            mzml_files.append({
+                "file": os.path.normpath(os.path.expanduser(resolved)),
+                "tag": f.get("tag", "")
+            })
+
+        # -- 4) Global adduct selections (clean + dedupe, order-preserving)
+        def clean_list(vals):
+            if not isinstance(vals, list):
+                return []
+            seen, out = set(), []
+            for v in vals:
+                if isinstance(v, str):
+                    s = v.strip()
+                    if s and s not in seen:
+                        seen.add(s)
+                        out.append(s)
+            return out
+
+        adducts = {
+            "positive": clean_list(data.get("positive_adducts", [])),
+            "negative": clean_list(data.get("negative_adducts", []))
         }
 
-        with open(os.path.join(working_directory, "state.json"), "w") as f:
+        # -- 5) Assemble final state
+        state = {
+            "working_directory": working_directory,
+            "compound_csv": compound_csv,
+            "mzml_files": mzml_files,
+            "adducts": adducts
+        }
+
+        # -- 6) Persist state.json
+        state_path = os.path.join(working_directory, "state.json")
+        with open(state_path, "w", encoding="utf-8") as f:
             json.dump(state, f, indent=2)
 
-        return jsonify({"message": "State saved successfully!"})
+        return jsonify({
+            "status": "ok",
+            "message": "State saved successfully!",
+            "state_path": state_path,
+            "mzml_count": len(mzml_files)
+        })
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 @app.route('/load_state', methods=['POST'])
 def load_state():
@@ -155,6 +240,52 @@ def generate_table():
         output_rows = []
         compound_set = os.path.splitext(os.path.basename(compound_csv))[0]
 
+        # === NEW: read global adduct selections from state (can be empty lists) ===
+        adducts = state.get("adducts", {}) or {}
+        pos_adducts = list(adducts.get("positive") or [])
+        neg_adducts = list(adducts.get("negative") or [])
+
+        has_legacy = any((f.get("adduct") or "").strip() for f in state.get("mzml_files", []))
+        if not has_legacy and not pos_adducts and not neg_adducts:
+            return jsonify({"error": "No adducts selected. Choose at least one positive or negative adduct in the UI and Save State."}), 400
+        
+        files_resolved = []
+        for entry in state.get("mzml_files", []):
+            mzml_path_in_state = entry.get("file", "")
+            full_mzml_path = (
+                mzml_path_in_state if os.path.isabs(mzml_path_in_state)
+                else os.path.join(working_directory, mzml_path_in_state)
+            )
+            filename = os.path.basename(full_mzml_path)
+            tag = entry.get("tag")
+
+            explicit_adduct = (entry.get("adduct") or "").strip()  # legacy support
+            if explicit_adduct:
+                adducts_for_file = [explicit_adduct]
+                pol = "legacy"
+            else:
+                pol = detect_polarity_mzml(full_mzml_path)  # called ONCE per file
+                if pol == "positive":
+                    adducts_for_file = pos_adducts
+                elif pol == "negative":
+                    adducts_for_file = neg_adducts
+                else:
+                    adducts_for_file = []
+
+            files_resolved.append({
+                "filename": filename,
+                "tag": tag,
+                "adducts": adducts_for_file,
+                "polarity": pol
+            })
+
+        # one concise log (instead of spamming inside the loop)
+        print("Resolved files:", [
+            {"file": f["filename"], "polarity": f["polarity"], "adducts": f["adducts"]}
+            for f in files_resolved
+        ])
+
+
         for compound in compound_df.itertuples():
             smiles = getattr(compound, "smiles", "")
             mz_from_csv = getattr(compound, "mz", None)
@@ -188,33 +319,32 @@ def generate_table():
                     print(f"Missing both SMILES and m/z for ID {compound_id}")
                     continue
 
-            for entry in state.get("mzml_files", []):
-                mzml_filename = os.path.basename(entry.get("file", ""))
-                adduct = entry.get("adduct")
-                tag = entry.get("tag")
+            for f in files_resolved:
+                if not f["adducts"]:
+                    continue  # no adducts for this file's polarity
 
-                adduct_mass = ADDUCT_MASS.get(adduct)
-                if adduct_mass is None:
-                    print(f" Unknown adduct '{adduct}' for file {mzml_filename}")
-                    continue
+                for adduct in f["adducts"]:
+                    adduct_mass = ADDUCT_MASS.get(adduct)
+                    if adduct_mass is None:
+                        print(f" Unknown adduct '{adduct}' for file {f['filename']}")
+                        continue
+                    # If known structure, add adduct mass. If suspect, keep mz as given.
+                    mz = neutral_mass + adduct_mass if known_type == "structure" else neutral_mass
 
-                # If known structure, add adduct mass. If suspect, keep mz as given.
-                mz = neutral_mass + adduct_mass if known_type == "structure" else neutral_mass
-
-                row = {
-                    "ID": compound_id,
-                    "mz": f"{mz:.6f}",
-                    "rt": rt_from_csv if pd.notnull(rt_from_csv) else "",
-                    "adduct": adduct,
-                    "tag": tag,
-                    "set": compound_set,
-                    "Name": name,
-                    "known": known_type,
-                    "SMILES": smiles,
-                    "Formula": formula,
-                    "file": mzml_filename,
-                }
-                output_rows.append(row)
+                    row = {
+                        "ID": compound_id,
+                        "mz": f"{mz:.6f}",
+                        "rt": rt_from_csv if pd.notnull(rt_from_csv) else "",
+                        "adduct": adduct,
+                        "tag": f["tag"],
+                        "set": compound_set,
+                        "Name": name,
+                        "known": known_type,
+                        "SMILES": smiles,
+                        "Formula": formula,
+                        "file": f["filename"],
+                    }
+                    output_rows.append(row)
 
         output_path = os.path.join(working_directory, "comprehensive_table.csv")
         pd.DataFrame(output_rows).to_csv(output_path, index=False)
@@ -308,7 +438,23 @@ def _extract_data_impl(working_dir, job_id=None) -> dict:
             f = file_obj["file"]
             mzml_path = f if os.path.isabs(f) else os.path.join(working_dir, f)  # avoid double-join
             tag    = str(file_obj["tag"]).strip()
-            adduct = str(file_obj["adduct"]).strip()
+            #adduct = str(file_obj["adduct"]).strip()
+            file_key = os.path.basename(mzml_path)
+
+            # filter comprehensive table rows that belong to THIS mzML file + tag
+            # (each row already carries its "adduct")
+            df_file = comp_df[
+                (comp_df["file"].astype(str) == file_key) &
+                (comp_df["tag"].astype(str) == tag)
+            ]
+
+            # if nothing to do for this file, continue quickly
+            if df_file.empty:
+                done += 1
+                if job_id:
+                    prog = 5 + int(55 * done / total)
+                    update_job(working_dir, job_id, progress=prog, message=f"Extraction {done}/{total}…")
+                continue
 
             exp = MSExperiment()
             MzMLFile().load(mzml_path, exp)
@@ -316,12 +462,10 @@ def _extract_data_impl(working_dir, job_id=None) -> dict:
             ms1_spectra = [s for s in spectra if s.getMSLevel() == 1]
             ms2_spectra = [s for s in spectra if s.getMSLevel() == 2]
 
-            for row in comp_df.itertuples():
-                row_tag    = str(row.tag).strip()
+            for row in df_file.itertuples():
+                #row_tag    = str(row.tag).strip()
                 row_adduct = str(row.adduct).strip()
-                if row_tag != tag or row_adduct != adduct:
-                    continue
-
+                
                 mz = float(row.mz)
                 fine_delta = mz * fine_ppm / 1_000_000
                 low, high  = mz - fine_delta, mz + fine_delta
@@ -340,7 +484,7 @@ def _extract_data_impl(working_dir, job_id=None) -> dict:
                     eic_rt.append(rt); eic_int.append(intensity)
 
                 eic_df   = pd.DataFrame({"rt": eic_rt, "intensity": eic_int})
-                eic_path = os.path.join(spectra_dir, f"{row.ID}_{adduct}_{tag}_EIC.csv")
+                eic_path = os.path.join(spectra_dir, f"{row.ID}_{row_adduct}_{tag}_EIC.csv")
                 try:
                     eic_df.to_csv(eic_path, index=False)
                 except Exception as e:
@@ -372,7 +516,7 @@ def _extract_data_impl(working_dir, job_id=None) -> dict:
                     })
                 if matched_ms2:
                     ms2_df   = pd.DataFrame(matched_ms2)
-                    ms2_path = os.path.join(spectra_dir, f"{row.ID}_{adduct}_{tag}_MS2.csv")
+                    ms2_path = os.path.join(spectra_dir, f"{row.ID}_{row_adduct}_{tag}_MS2.csv")
                     try:
                         ms2_df.to_csv(ms2_path, index=False)
                     except Exception as e:
