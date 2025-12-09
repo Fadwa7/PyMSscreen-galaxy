@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { saveState, loadState, generateTable } from '../api/api';
 import { useAppState } from '../context/AppStateContext';
 import { useNavigate } from 'react-router-dom';
+import RibbonHeader from "../components/RibbonHeader";
 
 
 // --- dark mode support (inline, no CSS files) ---
@@ -338,108 +339,336 @@ const handleSaveState = async () => {
     return updated;
   });
 };
+ 
+  // Inject keyframes for underline animation once
+useEffect(() => {
+  const animation = `
+    @keyframes header-underline {
+      0% { background-position: 0%; }
+      100% { background-position: 200%; }
+    }
+  `;
+  const style = document.createElement('style');
+  style.textContent = animation;
+  document.head.appendChild(style);
+  return () => document.head.removeChild(style);
+}, []);
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: theme.bg, fontFamily: 'sans-serif' }}>
-      <div className="header" style={{ textAlign: 'center', backgroundColor: theme.panelLite, padding: '20px' }}>
-        <img src="/images/Title.jpg" alt="Title Image" style={{ maxWidth: '100%', height: '350px', margin: 'auto' }} />
-        <h1>Mass Spectrometry Data Pre-screening</h1>
-      </div>
+  <div className="landing-page-wrapper" style={{ backgroundColor: theme.bg, minHeight: "100vh" }}>
 
-      <div className="intro" style={{ padding: '20px', textAlign: 'center', color: theme.muted }}>
-        <p>
-          An application intended to give the user a first look into raw mass-spectrometry data. This currently means that,
-          given the input of data files and a list of masses of known or unknown compounds, the application is going to
-          produce MS1 and MS2 chromatograms of the substances in the list, as well as the MS2 spectra.
-        </p>
-      </div>
+   <RibbonHeader isDark={isDark} />
 
-      <div className="data-config" style={{
-        padding: '20px', backgroundColor: theme.panel, color: theme.text, margin: '20px auto', borderRadius: '12px',
-        boxShadow: '0 6px 12px rgba(0, 0, 0, 0.15)', border: `2px solid ${theme.border}`, maxWidth: '90%', width: 'fit-content'
-      }}>
-        <h2>Data Configuration</h2>
+      <div style={{ textAlign: "center", marginTop: 35 }}>
+  <h1
+    style={{
+      fontSize: "2.8rem",
+      fontWeight: 800,
+      color: theme.text,
+      letterSpacing: "1px",
+      textShadow: isDark
+        ? "0 0 12px rgba(180,200,255,0.35)"
+        : "none",
+    }}
+  >
+    pyMSscreen
+  </h1>
 
-        <div style={{ marginBottom: '10px' }}>
-          <details style={{ background: theme.panelLite, color: theme.text, padding: '10px', borderRadius: '8px', border: '1px solid #cceeff' }}>
-            <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>ℹ️ Instructions</summary>
-            <ol style={{ paddingLeft: '20px', marginTop: '10px' }}>
-              <li>Set the <strong>Working Directory</strong> by pasting the full path containing the Compound CSV and mzML files.</li>
-              <li>Upload the <strong>Compound CSV</strong> (should include <em>ID</em>, <em>Name</em>, <em>SMILES</em> — or <em>ID</em> and <em>mz</em> for suspect screening).</li>
-              <li>Upload one or more <strong>mzML Files</strong>.</li>
-              <li>Edit <strong>Tags</strong> (unique labels for each file) and select the appropriate <strong>Adduct</strong>.</li>
-              <li>Click <strong>"Save State"</strong> to store the configuration, and <strong>"Generate Table"</strong> to proceed.</li>
-              <li><em>Optional:</em> If the same working directory is specified, click <strong>"Load State"</strong> to retrieve your previously saved configuration.</li>
-              <li>Once the table is successfully generated, proceed to the <strong>Extraction & Prescreening</strong> step.</li>
-            </ol>
-          </details>
-        </div>
 
-        <label>Working Directory:</label>
-        <input type="text" value="/app/uploads/" disabled style={{ width: '100%',  backgroundColor: theme.inputBg, color: theme.inputText, border: `1px solid ${theme.border}`, borderRadius: 6  }} />
+      {/* Subtitle */}
+      <h2
+        style={{
+          marginTop: 12,
+          fontSize: "1.6rem",
+          fontWeight: 600,
+          color: theme.muted,
+          position: "relative",
+          display: "inline-block",
+          paddingBottom: 6,
+        }}
+      >
+        Mass Spectrometry Data Pre-screening
 
-        <label>Compound CSV:</label>
-        <input type="file" accept=".csv" onChange={(e) => setCompoundCSV(e.target.files[0])} style={{ backgroundColor: theme.panelLite, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 6 }} />
-
-        <label>mzML Files:</label>
-        <input type="file" accept=".mzML" multiple onChange={(e) => setMzmlFiles([...e.target.files])} style={{ backgroundColor: theme.panelLite, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 6 }} />
-        
-         <AdductPicker theme={theme} value={globalAdducts} onChange={setGlobalAdducts} />
-      </div>
-
-      <table style={{ width: '90%', margin: 'auto', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr style={{ backgroundColor: theme.bg, color: theme.text }}>
-            <th style={{ border: `1px solid ${theme.border}`, padding: '8px' }}>File Name</th>
-            <th style={{ border: `1px solid ${theme.border}`, padding: '8px' }}>Tag</th>
-            <th style={{ border: `1px solid ${theme.border}`, padding: '8px' }}>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {mzmlFiles.map((file, idx) => (
-            <tr 
-              key={idx}
-              draggable
-              onDragStart={() => setDraggedRowIndex(idx)}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={() => {
-                const updatedFiles = [...mzmlFiles];
-                const dragged = updatedFiles.splice(draggedRowIndex, 1)[0];
-                updatedFiles.splice(idx, 0, dragged);
-                setMzmlFiles(updatedFiles);
-              }}
-              style={{ border: `1px solid ${theme.border}`, padding: '8px', cursor: 'move' }}
-             >
-              <td style={{ border: `1px solid ${theme.border}`, padding: '8px' }}>{file.name}</td>
-              <td style={{ border: `1px solid ${theme.border}`, padding: '8px' }}>
-                <input
-                  type="text"
-                  value={tags[file.name] || ''}
-                  onChange={(e) => setTags(prev => ({ ...prev, [file.name]: e.target.value }))}
-                  style={{ width: '100%', padding: '5px', backgroundColor: theme.inputBg, color: theme.inputText, border: `1px solid ${theme.border}`, borderRadius: 6, userSelect: 'text' }}
-                />
-              </td>
-              <td style={{ border: '1px solid ${theme.border}', padding: '8px' }}>
-                <button onClick={() => handleDeleteRow(file.name)} style={{ color: theme.dangerText, background: 'transparent', border: `1px solid ${theme.border}`, borderRadius: 6, padding: '6px 10px' }}>Delete</button>
-	            </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <div style={{ display: 'flex', justifyContent: 'flex-start', maxWidth: '90%', margin: '20px auto' }}>
-        <button onClick={handleSaveState} style={{ padding: '10px 15px', marginRight: '5px', borderRadius: '5px', background: theme.btnBg, color: theme.btnText, border: `1px solid ${theme.border}` }}>Save State</button>
-        <button onClick={handleLoadState} style={{ padding: '10px 15px', marginRight: '5px', borderRadius: '5px', background: theme.btnBg, color: theme.btnText, border: `1px solid ${theme.border}` }}>Load State</button>
-        <button onClick={handleGenerateTable} disabled={isGenerating} style={{ padding: '10px 15px', borderRadius: '5px', background: theme.btnBg, color: theme.btnText, border: `1px solid ${theme.border}`, opacity: isGenerating ? 0.7 : 1, cursor: isGenerating ? 'not-allowed' : 'pointer' }}>{isGenerating ? 'Generating…' : 'Generate Table'}</button>
-      </div>
-
-      <div style={{ textAlign: 'right', maxWidth: '90%', margin: 'auto', marginTop: '20px' }}>
-        <button onClick={() => navigate('/extraction')} style={{ padding: '10px 15px', borderRadius: '5px', background: theme.btnBg, color: theme.btnText, border: `1px solid ${theme.border}` }}>
-          Go to Extraction & Prescreening
-        </button>
-      </div>
+        <span
+          style={{
+            position: "absolute",
+            left: 0,
+            bottom: 0,
+            width: "100%",
+            height: "3px",
+            borderRadius: 4,
+            background: isDark
+              ? "linear-gradient(90deg, #5daeff, #ff4f4f)"
+              : "linear-gradient(90deg, #0077ff, #ff0066)",
+            backgroundSize: "200% 100%",
+            animation: "header-underline 3s infinite linear",
+          }}
+        ></span>
+      </h2>
     </div>
-  );
+
+    {/* INTRO BLOCK */}
+    <div
+      className="intro"
+      style={{
+        padding: "20px",
+        textAlign: "center",
+        color: theme.muted,
+      }}
+    >
+      <p>
+        An application intended to give the user a first look into raw
+        mass-spectrometry data. This currently means that, given the input of
+        data files and a list of masses of known or unknown compounds, the
+        application is going to produce MS1 and MS2 chromatograms of the
+        substances in the list, as well as the MS2 spectra.
+      </p>
+    </div>
+
+    {/* DATA CONFIG BLOCK */}
+    <div
+      className="data-config"
+      style={{
+        padding: "20px",
+        backgroundColor: theme.panel,
+        color: theme.text,
+        margin: "20px auto",
+        borderRadius: "12px",
+        boxShadow: "0 6px 12px rgba(0, 0, 0, 0.15)",
+        border: `2px solid ${theme.border}`,
+        maxWidth: "90%",
+        width: "fit-content",
+      }}
+    >
+      <h2>Data Configuration</h2>
+
+      <div style={{ marginBottom: "10px" }}>
+        <details
+          style={{
+            background: theme.panelLite,
+            color: theme.text,
+            padding: "10px",
+            borderRadius: "8px",
+            border: "1px solid #cceeff",
+          }}
+        >
+          <summary style={{ cursor: "pointer", fontWeight: "bold" }}>
+            ℹ️ Instructions
+          </summary>
+          <ol style={{ paddingLeft: "20px", marginTop: "10px" }}>
+            <li>
+              Set the <strong>Working Directory</strong>… 
+            </li>
+            <li>Upload the <strong>Compound CSV</strong>…</li>
+            <li>Upload one or more <strong>mzML Files</strong>.</li>
+            <li>Edit Tags and select the appropriate Adduct.</li>
+            <li>Click Save State, then Generate Table.</li>
+            <li>Load State retrieves saved configuration.</li>
+            <li>Proceed to Extraction & Prescreening.</li>
+          </ol>
+        </details>
+      </div>
+
+      <label>Working Directory:</label>
+      <input
+        type="text"
+        value="/app/uploads/"
+        disabled
+        style={{
+          width: "100%",
+          backgroundColor: theme.inputBg,
+          color: theme.inputText,
+          border: `1px solid ${theme.border}`,
+          borderRadius: 6,
+        }}
+      />
+
+      <label>Compound CSV:</label>
+      <input
+        type="file"
+        accept=".csv"
+        onChange={(e) => setCompoundCSV(e.target.files[0])}
+        style={{
+          backgroundColor: theme.panelLite,
+          color: theme.text,
+          border: `1px solid ${theme.border}`,
+          borderRadius: 6,
+        }}
+      />
+
+      <label>mzML Files:</label>
+      <input
+        type="file"
+        accept=".mzML"
+        multiple
+        onChange={(e) => setMzmlFiles([...e.target.files])}
+        style={{
+          backgroundColor: theme.panelLite,
+          color: theme.text,
+          border: `1px solid ${theme.border}`,
+          borderRadius: 6,
+        }}
+      />
+
+      <AdductPicker theme={theme} value={globalAdducts} onChange={setGlobalAdducts} />
+    </div>
+
+    {/* TABLE BLOCK */}
+    <table style={{ width: "90%", margin: "auto", borderCollapse: "collapse" }}>
+      <thead>
+        <tr style={{ backgroundColor: theme.bg, color: theme.text }}>
+          <th style={{ border: `1px solid ${theme.border}`, padding: "8px" }}>
+            File Name
+          </th>
+          <th style={{ border: `1px solid ${theme.border}`, padding: "8px" }}>
+            Tag
+          </th>
+          <th style={{ border: `1px solid ${theme.border}`, padding: "8px" }}>
+            Actions
+          </th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {mzmlFiles.map((file, idx) => (
+          <tr
+            key={idx}
+            draggable
+            onDragStart={() => setDraggedRowIndex(idx)}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={() => {
+              const updatedFiles = [...mzmlFiles];
+              const dragged = updatedFiles.splice(draggedRowIndex, 1)[0];
+              updatedFiles.splice(idx, 0, dragged);
+              setMzmlFiles(updatedFiles);
+            }}
+            style={{
+              border: `1px solid ${theme.border}`,
+              padding: "8px",
+              cursor: "move",
+            }}
+          >
+            <td style={{ border: `1px solid ${theme.border}`, padding: "8px" }}>
+              {file.name}
+            </td>
+
+            <td style={{ border: `1px solid ${theme.border}`, padding: "8px" }}>
+              <input
+                type="text"
+                value={tags[file.name] || ""}
+                onChange={(e) =>
+                  setTags((prev) => ({ ...prev, [file.name]: e.target.value }))
+                }
+                style={{
+                  width: "100%",
+                  padding: "5px",
+                  backgroundColor: theme.inputBg,
+                  color: theme.inputText,
+                  border: `1px solid ${theme.border}`,
+                  borderRadius: 6,
+                }}
+              />
+            </td>
+
+            <td style={{ border: `1px solid ${theme.border}`, padding: "8px" }}>
+              <button
+                onClick={() => handleDeleteRow(file.name)}
+                style={{
+                  color: theme.dangerText,
+                  background: "transparent",
+                  border: `1px solid ${theme.border}`,
+                  borderRadius: 6,
+                  padding: "6px 10px",
+                }}
+              >
+                Delete
+              </button>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+
+    {/* ACTION BUTTONS */}
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "flex-start",
+        maxWidth: "90%",
+        margin: "20px auto",
+      }}
+    >
+      <button
+        onClick={handleSaveState}
+        style={{
+          padding: "10px 15px",
+          marginRight: "5px",
+          borderRadius: "5px",
+          background: theme.btnBg,
+          color: theme.btnText,
+          border: `1px solid ${theme.border}`,
+        }}
+      >
+        Save State
+      </button>
+
+      <button
+        onClick={handleLoadState}
+        style={{
+          padding: "10px 15px",
+          marginRight: "5px",
+          borderRadius: "5px",
+          background: theme.btnBg,
+          color: theme.btnText,
+          border: `1px solid ${theme.border}`,
+        }}
+      >
+        Load State
+      </button>
+
+      <button
+        onClick={handleGenerateTable}
+        disabled={isGenerating}
+        style={{
+          padding: "10px 15px",
+          borderRadius: "5px",
+          background: theme.btnBg,
+          color: theme.btnText,
+          border: `1px solid ${theme.border}`,
+          opacity: isGenerating ? 0.7 : 1,
+          cursor: isGenerating ? "not-allowed" : "pointer",
+        }}
+      >
+        {isGenerating ? "Generating…" : "Generate Table"}
+      </button>
+    </div>
+
+    {/* NEXT PAGE BUTTON */}
+    <div
+      style={{
+        textAlign: "right",
+        maxWidth: "90%",
+        margin: "auto",
+        marginTop: "20px",
+      }}
+    >
+      <button
+        onClick={() => navigate("/extraction")}
+        style={{
+          padding: "10px 15px",
+          borderRadius: "5px",
+          background: theme.btnBg,
+          color: theme.btnText,
+          border: `1px solid ${theme.border}`,
+        }}
+      >
+        Go to Extraction & Prescreening
+      </button>
+    </div>
+
+  </div> // END WRAPPER
+);
+
 };
 
 export default LandingPage;

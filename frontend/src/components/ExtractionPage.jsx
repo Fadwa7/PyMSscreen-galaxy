@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useAppState } from '../context/AppStateContext';
 import { saveExtractConfig, extractData, prescreenData } from '../api/api';
 import { useNavigate } from 'react-router-dom';
+import RibbonHeader from "../components/RibbonHeader";
+
 
 const usePrefersDark = () => {
   const [isDark, setIsDark] = useState(
@@ -155,11 +157,76 @@ export default function ExtractionPage() {
 
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: theme.bg, color: theme.text, fontFamily: 'sans-serif' }}>
-      <div className="header" style={{ textAlign: 'center', backgroundColor: theme.panelLite, color: theme.text, padding: '20px' }}>
-        <img src="/images/Title.jpg" alt="Title Image" style={{ maxWidth: '100%', height: '350px', margin: 'auto' }} />
-        <h1 style={{ fontSize: '28px' }}>Extraction and Pre-screening</h1>
-      </div>
+      <div className="landing-page-wrapper" style={{ backgroundColor: theme.bg, minHeight: "100vh" }}>
+
+   <RibbonHeader isDark={isDark} />
+
+      <div style={{ textAlign: "center", marginTop: 35 }}>
+  <h1
+    style={{
+      fontSize: "2.8rem",
+      fontWeight: 800,
+      color: theme.text,
+      letterSpacing: "1px",
+      textShadow: isDark
+        ? "0 0 12px rgba(180,200,255,0.35)"
+        : "none",
+    }}
+  >
+    pyMSscreen
+  </h1>
+
+
+      {/* Subtitle */}
+      <h2
+        style={{
+          marginTop: 12,
+          fontSize: "1.6rem",
+          fontWeight: 600,
+          color: theme.muted,
+          position: "relative",
+          display: "inline-block",
+          paddingBottom: 6,
+        }}
+      >
+        Extraction & Prescreening 
+
+        <span
+          style={{
+            position: "absolute",
+            left: 0,
+            bottom: 0,
+            width: "100%",
+            height: "3px",
+            borderRadius: 4,
+            background: isDark
+              ? "linear-gradient(90deg, #5daeff, #ff4f4f)"
+              : "linear-gradient(90deg, #0077ff, #ff0066)",
+            backgroundSize: "200% 100%",
+            animation: "header-underline 3s infinite linear",
+          }}
+        ></span>
+      </h2>
+    </div>
+
+    {/* INTRO BLOCK */}
+    <div
+      className="intro"
+      style={{
+        padding: "20px",
+        textAlign: "center",
+        color: theme.muted,
+      }}
+    >
+      <p>
+        The Extraction & Prescreening module isolates the extracted ion chromatograms
+        (EICs) and retrieves the corresponding MS2 spectra for each target compound
+        by screening the mzML files for precursor signals within the defined mass
+        tolerance. The prescreening step then applies a set of quality-control criteria to these extracted spectra, removing
+        low-intensity, noisy or misaligned peaks. This ensures that only high-quality MS2 spectra advance to downstream interpretation and
+        analysis.
+      </p>
+    </div>
 
       <div style={{ padding: '20px', textAlign: 'center', maxWidth: '90%', margin: 'auto' }}>
         <details style={{ background: theme.panelLite, padding: '10px', borderRadius: '8px', border: `1px solid solid ${theme.border}`, color: theme.text }}>

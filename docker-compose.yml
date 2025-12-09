@@ -9,6 +9,7 @@ services:
     volumes:
       - ${UPLOADS_PATH}:/app/uploads
     restart: always
+    platform: linux/amd64
 
   frontend:
     build: ./frontend
@@ -18,4 +19,5 @@ services:
     restart: always
     depends_on:
       - backend
+    platform: linux/amd64
 

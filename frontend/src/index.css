@@ -1,5 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif, 'Inter', 'Segoe UI',;
+  font-family: system-ui, Avenir, Helvetica, Arial, 'Inter', 'Segoe UI', sans-serif;
   line-height: 1.5;
   font-weight: 400;
 
@@ -53,6 +57,7 @@ button:focus-visible {
   outline: 4px auto -webkit-focus-ring-color;
 }
 
+/* LIGHT MODE OVERRIDES */
 @media (prefers-color-scheme: light) {
   :root {
     color: #213547;
@@ -66,7 +71,53 @@ button:focus-visible {
   }
 }
 
-/* Tailwind CSS Directives */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* SVG RIBBON: LIGHT MODE GRADIENT */
+.bg-grad {
+  fill: url(#bg-light);
+}
+
+/* SVG RIBBON: DARK MODE GRADIENT */
+@media (prefers-color-scheme: dark) {
+  .bg-grad {
+    fill: url(#bg-dark);
+  }
+}
+
+/* === Mass-spec header animations === */
+
+.ms-peak {
+  transform-origin: center bottom;
+  vector-effect: non-scaling-stroke;
+  transform-box: fill-box;
+  animation:
+    ms-jitter 2.8s ease-in-out infinite alternate,
+    ms-arrivalPulse 4.2s ease-in-out infinite;
+}
+
+/* group wobble */
+.group-left    { animation: ms-group-wobble 6s ease-in-out infinite; }
+.group-center  { animation: ms-group-wobble 7s ease-in-out infinite; }
+.group-right   { animation: ms-group-wobble 5s ease-in-out infinite; }
+
+@keyframes ms-jitter {
+  0%   { transform: translateY(0) scaleY(1); }
+  50%  { transform: translateY(-3px) scaleY(1.04); }
+  100% { transform: translateY(0) scaleY(0.97); }
+}
+
+@keyframes ms-arrivalPulse {
+  0%   { opacity: 0.55; }
+  10%  { opacity: 1; }
+  100% { opacity: 0.55; }
+}
+
+@keyframes ms-group-wobble {
+  0%   { transform: translateY(0px); }
+  50%  { transform: translateY(-4px); }
+  100% { transform: translateY(0px); }
+}
+
+/* Glow */
+.peak-glow {
+  filter: drop-shadow(0px -2px 6px rgba(255,255,255,0.22));
+}
