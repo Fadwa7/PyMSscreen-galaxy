@@ -1,3 +1,49 @@
+/**
+ * @typedef {Object} CompoundRow
+ * @property {string} ID - Compound identifier.
+ * @property {string} tag - Tag associated with the mzML file.
+ * @property {string} adduct - Adduct used for m/z calculation.
+ * @property {string} Name - Compound name.
+ */
+
+/**
+ * @typedef {Object} GroupedCompound
+ * @property {string} id - Compound ID.
+ * @property {CompoundRow[]} group - Rows belonging to the same compound ID.
+ */
+
+/**
+ * @typedef {Object} SelectOption
+ * @property {string} value
+ * @property {string} label
+ */
+
+/**
+ * @file PlottingPage.jsx
+ * @summary Visualization dashboard for extracted MS1/MS2 data.
+ *
+ * @description
+ * This component provides an interactive interface for:
+ * - Browsing extracted compounds
+ * - Filtering by tag and adduct
+ * - Navigating compounds sequentially
+ * - Visualizing MS1 EICs and MS2 fragment spectra
+ * - Exporting single compound plots or a combined summary PDF
+ *
+ * Data are loaded from the backend-generated `comprehensive_table.csv`
+ * and grouped by compound ID for visualization.
+ *
+ * Backend integration
+ * -------------------
+ * - GET /load_comprehensive_table
+ * - POST /export_summary_pdf
+ *
+ * UI Components
+ * -------------
+ * - react-select for filtering and compound selection
+ * - CompoundPlot for rendering spectral plots
+ */
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Select from 'react-select';
 import axios from 'axios';
@@ -117,6 +163,47 @@ const checkboxStyle = {
   // accentColor: theme.ok,
 };
 
+/**
+ * PlottingPage component.
+ *
+ * @component
+ * @returns {JSX.Element} Interactive visualization dashboard for spectral data.
+ *
+ * @state {CompoundRow[]} compounds
+ * Flat list of rows loaded from `comprehensive_table.csv`.
+ *
+ * @state {SelectOption[]} tagOptions
+ * Unique tag values available for filtering.
+ *
+ * @state {SelectOption[]} adductOptions
+ * Unique adduct values available for filtering.
+ *
+ * @state {SelectOption[]} selectedTags
+ * Currently selected tag filters.
+ *
+ * @state {SelectOption[]} selectedAdducts
+ * Currently selected adduct filters.
+ *
+ * @state {GroupedCompound[]} groupedByID
+ * Compounds grouped by ID after applying filters.
+ *
+ * @state {CompoundRow[]|null} selectedGroup
+ * Compound rows currently selected for plotting.
+ *
+ * @state {SelectOption[]} compoundOptions
+ * Dropdown options for navigating compounds by ID.
+ *
+ * @state {number} currentIndex
+ * Index of the currently selected compound in `compoundOptions`.
+ *
+ * @state {Object|null} exportPayload
+ * Plot data prepared by `CompoundPlot` for export.
+ *
+ * @remarks
+ * - Keyboard navigation via left/right arrow keys is supported.
+ * - Visualization is disabled until compound selection is available.
+ */
+
 const PlottingPage = () => {
   const { appState } = useAppState();
   const isDark = usePrefersDark();
@@ -140,6 +227,8 @@ const PlottingPage = () => {
   const qaFlagsCache = useRef({});
   const isTrue = (val) => val === true || val === 'true' || val === 'True' || val === 1 || val === '1';
   const isSingleTagSelected = () => selectedTags.length === 1;
+  const [sidebarWidth, setSidebarWidth] = useState(340);
+  const isResizing = useRef(false);
 
   const selectStyles = React.useMemo(() => ({
   control: (base, state) => ({
@@ -259,6 +348,18 @@ const PlottingPage = () => {
     setCurrentIndex(newIndex);
      selectedIdRef.current = result[newIndex]?.id?.toString() || null;
   }, [compounds, selectedTags, selectedAdducts]);
+
+  /**
+ * Extract unique values for a given field from compound rows.
+ *
+ * @function extractUnique
+ * @param {CompoundRow[]} data - Input compound rows.
+ * @param {string} field - Field name to extract (e.g., "tag", "adduct").
+ * @returns {SelectOption[]} Unique values formatted for react-select.
+ *
+ * @remarks
+ * Comma-separated values are split and trimmed.
+ */
 
   const extractUnique = (data, field) => {
     const set = new Set();
@@ -412,7 +513,20 @@ const handleExportPeakList = async () => {
   }
 };
 
-  
+  /**
+ * Export the currently displayed compound plot.
+ *
+ * @function handleSaveSinglePlot
+ * @returns {void}
+ *
+ * @sideEffects
+ * - Generates a default filename if none is provided
+ * - Calls `exportCombinedPlot` with prepared plot payload
+ *
+ * @remarks
+ * If multiple tags or adducts are present, the filename reflects this.
+ */
+
   const handleSaveSinglePlot = () => {
     const groupToUse = selectedGroup || groupedByID[currentIndex]?.group || [];
     if (!groupToUse.length || !appState?.working_directory) return;
@@ -428,6 +542,21 @@ const handleExportPeakList = async () => {
       alert('Plots are not yet ready for export.');
     }
   };
+
+  /**
+ * Export a combined summary PDF for all filtered compounds.
+ *
+ * @async
+ * @function handleExportSummaryPDF
+ * @returns {Promise<void>}
+ *
+ * @sideEffects
+ * - Sends compound data to the backend
+ * - Triggers browser download of the generated PDF
+ *
+ * @remarks
+ * Output filename reflects selected tag and adduct filters.
+ */
 
   const handleExportSummaryPDF = async () => {
     if (!appState?.working_directory || groupedByID.length === 0) return;
@@ -463,7 +592,30 @@ const handleExportPeakList = async () => {
     padding: '6px 12px'
   };
 
-  
+  const handleMouseDown = () => {
+  isResizing.current = true;
+};
+
+const handleMouseMove = (e) => {
+  if (!isResizing.current) return;
+  const newWidth = Math.min(Math.max(e.clientX, 200), 600); 
+  // min 200px, max 600px — adjust as you like
+  setSidebarWidth(newWidth);
+};
+
+const handleMouseUp = () => {
+  isResizing.current = false;
+};
+
+useEffect(() => {
+  window.addEventListener("mousemove", handleMouseMove);
+  window.addEventListener("mouseup", handleMouseUp);
+  return () => {
+    window.removeEventListener("mousemove", handleMouseMove);
+    window.removeEventListener("mouseup", handleMouseUp);
+  };
+}, []);
+
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: theme.bg, color: theme.text }}>
       <div style={{ padding: '12px', backgroundColor: theme.panelLite, borderBottom: `1px solid ${theme.border}`, fontWeight: 'bold', fontSize: '18px', textAlign: 'center' }}>
@@ -488,7 +640,7 @@ const handleExportPeakList = async () => {
       </div>
         
       <div style={{ display: 'flex', flex: 1 }}>
-        <div style={{ width: '340px', padding: '16px', overflow: 'auto', background: theme.leftPane, borderRight: `2px solid ${theme.leftPaneBorder}`, display: 'flex', flexDirection: 'column', color: theme.text }}>
+        <div style={{ width: sidebarWidth, padding: '16px', overflow: 'auto', background: theme.leftPane, borderRight: `2px solid ${theme.leftPaneBorder}`, display: 'flex', flexDirection: 'column', color: theme.text, transition: isResizing.current ? "none" : "width 0.15s ease" }}>
           <h3 style={{ textAlign: 'center' }}>Settings Pane</h3>
 
       {/* Settings Pane Help (collapsible) */}
@@ -722,6 +874,17 @@ const handleExportPeakList = async () => {
   Back to Setup
 </button>
 </div> {/* ← close LEFT pane */}
+
+{/* DRAG HANDLE */}
+<div
+  onMouseDown={handleMouseDown}
+  style={{
+    width: "5px",
+    cursor: "col-resize",
+    background: theme.border,
+    marginRight: "2px"
+  }}
+></div>
 
 <div style={{ flex: 1, padding: '16px', overflowY: 'auto' }}>
   <CompoundPlot

@@ -1,4 +1,35 @@
+/**
+ * @file RibbonHeader.jsx
+ * @summary Decorative SVG ribbon header inspired by mass spectrometry peak patterns.
+ *
+ * @description
+ * This component renders a responsive SVG header composed of stylized vertical
+ * "peaks" resembling mass spectra. The header is purely decorative and does not
+ * encode or display analytical data.
+ *
+ * The appearance adapts to light and dark themes via a background gradient.
+ * Color-coded peak groups are used to evoke MS1/MS2 visual motifs.
+ */
+
 import React from "react";
+
+/**
+ * RibbonHeader component.
+ *
+ * @component
+ * @param {Object} props
+ * @param {boolean} props.isDark
+ * If true, renders a dark gradient background; otherwise uses a light gradient.
+ *
+ * @returns {JSX.Element}
+ * Responsive SVG ribbon header with stylized spectral peaks.
+ *
+ * @remarks
+ * - This component is purely presentational (no state, no side effects).
+ * - Peak positions and colors are static and chosen for visual balance.
+ * - SVG scales horizontally to fill the available container width.
+ */
+
 
 const RibbonHeader = ({ isDark }) => {
   return (

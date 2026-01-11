@@ -1,3 +1,38 @@
+/**
+ * @typedef {Object} ExtractConfigPayload
+ * @property {string} working_directory
+ * @property {number} ms1_coarse_error
+ * @property {number} ms1_fine_error
+ * @property {number} ms1_eic_window
+ * @property {number} retention_time_window
+ * @property {number} ms1_intensity_threshold
+ * @property {number} ms2_intensity_threshold
+ * @property {number} ms1_sn_ratio
+ * @property {number} retention_time_delay
+ */
+
+/**
+ * @file ExtractionPage.jsx
+ * @summary UI for configuring spectral extraction and pre-screening parameters.
+ *
+ * @description
+ * This component provides controls for:
+ * - Defining MS1/MS2 extraction tolerances
+ * - Configuring quality control and prescreening thresholds
+ * - Triggering backend spectral extraction
+ * - Running automated prescreening and alignment checks
+ *
+ * The component communicates with the backend to:
+ * - Save extraction parameters to `extract_config.yaml`
+ * - Extract MS1 EICs and MS2 spectra
+ * - Generate a QA summary table (`summary_table.csv`)
+ *
+ * Navigation
+ * ----------
+ * - Back to setup page (`/`)
+ * - Forward to visualization page (`/plotting`)
+ */
+
 import { useState, useEffect } from 'react';
 import { useAppState } from '../context/AppStateContext';
 import { saveExtractConfig, extractData, prescreenData } from '../api/api';
@@ -58,6 +93,48 @@ const makeTheme = (isDark) =>
         btnGoGradTo: '#aaffaa'
       };
 
+
+/**
+ * ExtractionPage component.
+ *
+ * @component
+ * @returns {JSX.Element} UI for spectral extraction and prescreening configuration.
+ *
+ * @state {number} ms1CoarseError
+ * Coarse MS1 precursor m/z tolerance (Da) used for MS2 matching.
+ *
+ * @state {number} ms1FineError
+ * Fine MS1 tolerance (ppm) used for extracted ion chromatograms (EICs).
+ *
+ * @state {number} ms1EicWindow
+ * Absolute m/z window (Da) for EIC construction.
+ *
+ * @state {number} retentionTimeWindow
+ * Retention time window (minutes) used for MS1 extraction.
+ *
+ * @state {number} ms1IntensityThreshold
+ * Minimum MS1 intensity required for QA pass.
+ *
+ * @state {number} ms2IntensityThreshold
+ * Minimum fragment ion intensity required for MS2 QA pass.
+ *
+ * @state {number} ms1SnRatio
+ * Signal-to-noise ratio threshold for MS1 QA.
+ *
+ * @state {number} retentionTimeDelay
+ * Allowed retention time deviation (± minutes) between MS1 and MS2.
+ *
+ * @state {number} progress
+ * Progress percentage displayed during extraction and prescreening.
+ *
+ * @state {string} status
+ * Human-readable status message describing current backend operation.
+ *
+ * @remarks
+ * - All file system access is handled by the backend.
+ * - The frontend only passes numeric parameters and working directory paths.
+ */
+
 export default function ExtractionPage() {
   const navigate = useNavigate();
   const { appState } = useAppState();
@@ -76,6 +153,22 @@ export default function ExtractionPage() {
   const isDark = usePrefersDark();
   const theme = makeTheme(isDark);
 
+
+  /**
+ * Save extraction and prescreening parameters to the backend.
+ *
+ * @async
+ * @function handleSaveSettings
+ * @returns {Promise<void>}
+ *
+ * @sideEffects
+ * - Writes `extract_config.yaml` to the working directory on the backend.
+ * - Displays success or failure alerts to the user.
+ *
+ * @remarks
+ * Parameter values are explicitly cast to floating-point numbers
+ * before being sent to the backend.
+ */
 
   const handleSaveSettings = async () => {
     const config = {
@@ -97,6 +190,28 @@ export default function ExtractionPage() {
       alert("Failed to save extract_config.yaml");
     }
   };
+
+  /**
+ * Run spectral extraction followed by automated prescreening.
+ *
+ * @async
+ * @function handleExtractAndPrescreen
+ * @returns {Promise<void>}
+ *
+ * @workflow
+ * 1) Trigger MS1/MS2 extraction (`/extract_data`)
+ * 2) Monitor progress using simulated progress updates
+ * 3) Trigger prescreening and QA (`/prescreen_data`)
+ * 4) Display completion or error status
+ *
+ * @sideEffects
+ * - Generates MS1 EIC and MS2 fragment CSV files
+ * - Writes `summary_table.csv` to the working directory
+ * - Updates progress bar and status messages in the UI
+ *
+ * @remarks
+ * Progress updates are heuristic and do not reflect exact backend completion percentages.
+ */
 
   const handleExtractAndPrescreen = async () => {
   setShowProgress(true);

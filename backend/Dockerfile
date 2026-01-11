@@ -1,6 +1,14 @@
-FROM mirror.gcr.io/library/python:3.11-slim
+FROM python:3.11-slim-bookworm
 
-# System deps for pyOpenMS & friends
+# Force IPv4
+RUN echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4
+
+# Replace HTTP with HTTPS in the actual Debian sources file
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
+ && sed -i 's|http://security.debian.org|https://security.debian.org|g' /etc/apt/sources.list.d/debian.sources
+
+
+# Now apt commands will work again
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libboost-all-dev \
@@ -12,6 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     wget \
  && rm -rf /var/lib/apt/lists/*
+
 
 WORKDIR /app
 

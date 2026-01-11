@@ -77,6 +77,26 @@ ADDUCT_MASS = {
 }
 
 def resolve_path(p):
+    """
+    Expand a user-relative filesystem path.
+
+    This helper expands a path that may include a tilde (`~`) into an absolute
+    path using the current user's home directory.
+
+    Parameters
+    ----------
+    p : str
+        Input path that may contain `~`.
+
+    Returns
+    -------
+    str
+        Expanded path with user home resolved.
+
+    Notes
+    -----
+    This function does not validate that the path exists.
+    """
     return os.path.expanduser(p)
 
 def infer_polarity_from_name(path_or_name: str) -> str:
@@ -110,13 +130,44 @@ def detect_polarity_mzml(path_to_mzml: str) -> str:
 @app.route('/save_state', methods=['POST'])
 def save_state():
     """
-    Save user configuration:
-      - working_directory (base path for relative files)
-      - compound_csv (absolute or relative to working_directory)
-      - mzml_files: [{ "file": <path>, "tag": <str> }, ...]
-      - adducts: {"positive": [...], "negative": [...]}
+    Persist application state (input files, tags, adducts) to a JSON file.
 
-    Writes state.json into working_directory and returns metadata.
+    Expects a JSON body containing a `working_directory`, a `compound_csv`
+    filename/path (relative to the working directory), and a list of `mzml_files`
+    entries with file/tag/adduct metadata. The route writes `state.json` into
+    the working directory.
+
+    Request JSON
+    ------------
+    working_directory : str, optional
+        Base directory for resolving relative file paths. Defaults to `"."`.
+    compound_csv : str
+        Path or filename of the compound CSV (typically relative to working_directory).
+    mzml_files : list of dict, optional
+        Each dict may include:
+        - file : str
+            mzML filename/path (typically relative to working_directory).
+        - tag : str, optional
+            A grouping label used later for matching rows.
+        - adduct : str, optional
+            Adduct string key (e.g., "[M+H]+") used to compute m/z.
+
+    Returns
+    -------
+    flask.Response
+        JSON response:
+        - 200: {"message": "..."} on success
+        - 400: {"error": "..."} if working_directory is invalid
+        - 500: {"error": "..."} for unexpected errors
+
+    Side Effects
+    ------------
+    Writes a file `state.json` under `working_directory`.
+
+    Notes
+    -----
+    Paths are normalized by joining each provided relative path with the
+    expanded `working_directory`.
     """
     try:
         data = request.get_json(force=True) or {}
@@ -193,6 +244,29 @@ def save_state():
 
 @app.route('/load_state', methods=['POST'])
 def load_state():
+    """
+    Load previously saved application state from `state.json`.
+
+    Expects a JSON body containing `working_directory`. The route reads
+    `<working_directory>/state.json` and returns it as JSON.
+
+    Request JSON
+    ------------
+    working_directory : str, optional
+        Directory containing `state.json`. Defaults to `"."`.
+
+    Returns
+    -------
+    flask.Response
+        JSON response:
+        - 200: The parsed contents of `state.json`
+        - 404: {"error": "No saved state found."} if missing
+        - 500: {"error": "..."} for unexpected errors
+
+    Side Effects
+    ------------
+    None.
+    """
     try:
         data = request.get_json()
         working_directory = os.path.expanduser(data.get("working_directory", "."))
@@ -211,6 +285,50 @@ def load_state():
 
 @app.route('/generate_table', methods=['POST'])
 def generate_table():
+
+    """
+    Generate a comprehensive compound/adduct table and save it as CSV.
+
+    This endpoint reads `state.json` from the given working directory and uses:
+    - `compound_csv` (from the state) to load compounds (expects at least a
+      `SMILES` column and commonly `ID`, `Name`).
+    - `mzml_files` (from the state) to assign `tag` and `adduct` combinations.
+
+    For each compound SMILES, the code computes:
+    - neutral exact mass (RDKit)
+    - molecular formula (RDKit)
+    Then calculates m/z using a fixed adduct mass lookup (ADDUCT_MASS).
+
+    Request JSON
+    ------------
+    workingDirectory : str
+        Working directory containing `state.json` and the referenced `compound_csv`.
+
+    Returns
+    -------
+    flask.Response
+        JSON response:
+        - 200: {"message": "Table generated successfully", "path": "<.../comprehensive_table.csv>"}
+        - 404: if `state.json` or `compound_csv` is missing
+        - 400: if `compound_csv` is missing from `state.json`
+        - 500: for unexpected errors
+
+    Side Effects
+    ------------
+    Writes `comprehensive_table.csv` into `workingDirectory`.
+
+    Output Columns
+    --------------
+    The output CSV includes (as currently implemented):
+    ID, mz, rt, adduct, tag, set, Name, known, SMILES, Formula, file
+
+    Notes
+    -----
+    - Invalid SMILES are skipped.
+    - Unknown adduct strings (not in ADDUCT_MASS) are skipped.
+    - `rt` is left empty for downstream population.
+    """
+
     try:
         body = request.get_json(force=True)
         working_directory = resolve_path(body.get("workingDirectory", ""))
@@ -359,6 +477,45 @@ def generate_table():
 
 @app.route('/save_extract_config', methods=['POST'])
 def save_extract_config():
+    """
+    Save extraction and prescreen parameters to `extract_config.yaml`.
+
+    Expects numeric thresholds/windows in the request JSON. The endpoint writes
+    a structured YAML configuration under the working directory.
+
+    Request JSON
+    ------------
+    working_directory : str, optional
+        Directory to write `extract_config.yaml`. Defaults to `"."`.
+    ms1_coarse_error : str or number
+        Coarse MS1 tolerance in Da (stored as "<value> Da").
+    ms1_fine_error : str or number
+        Fine MS1 tolerance in ppm (stored as "<value> ppm").
+    ms1_eic_window : str or number
+        EIC window in Da (stored as "<value> Da").
+    retention_time_window : str or number
+        RT window in minutes (stored as "<value> min").
+    ms1_intensity_threshold : str or number
+        Minimum MS1 intensity threshold.
+    ms2_intensity_threshold : str or number
+        Minimum MS2 intensity threshold.
+    ms1_sn_ratio : str or number
+        Signal-to-noise ratio threshold used for MS1.
+    retention_time_delay : str or number
+        Allowed RT shift (stored as "<value> min").
+
+    Returns
+    -------
+    flask.Response
+        JSON response:
+        - 200: {"message": "Saved to <.../extract_config.yaml>"}
+        - 400: {"error": "..."} if working_directory does not exist
+        - 500: {"error": "..."} for unexpected errors
+
+    Side Effects
+    ------------
+    Writes `extract_config.yaml` under `working_directory`.
+    """
     try:
         data = request.get_json()
         working_directory = resolve_path(data.get("working_directory", "."))
@@ -715,6 +872,46 @@ def job_status():
     
 @app.route("/extract_data", methods=["POST"])
 def extract_data():
+    """
+    Extract MS1 EIC traces and MS2 spectra matched to compound m/z targets.
+
+    This endpoint loads:
+    - `state.json` (mzML files, tags, adducts)
+    - `extract_config.yaml` (tolerances and thresholds)
+    - `comprehensive_table.csv` (targets created by `/generate_table`)
+
+    For each mzML file:
+    - Loads spectra (pyOpenMS)
+    - Builds MS1 EIC by summing intensities within a fine ppm window
+    - Matches MS2 spectra whose precursor m/z is within a coarse Da window
+    - Writes per-compound CSV outputs into `<working_directory>/ms2_spectra/`
+
+    Request JSON
+    ------------
+    working_directory : str
+        Working directory containing state/config/table files.
+
+    Returns
+    -------
+    flask.Response
+        JSON response:
+        - 200: {"status": "success", "message": "Extraction complete"}
+        - 500: {"status": "error", "message": "<exception>"} on failure
+
+    Side Effects
+    ------------
+    Creates (if needed) the directory `<working_directory>/ms2_spectra/` and writes:
+    - `{ID}_{adduct}_{tag}_EIC.csv`
+        Columns: rt (min), intensity
+    - `{ID}_{adduct}_{tag}_MS2.csv` (when matches exist)
+        Columns: scan_id, ms2_rt (min), ms2_intensity, peak_list
+
+    Notes
+    -----
+    - RTs are converted from seconds to minutes.
+    - `peak_list` is stored as a semicolon-separated "m/z:intensity" string.
+    - Compound rows are filtered to match both `tag` and `adduct` for each mzML file.
+    """
     req = request.get_json(force=True)
     wd  = resolve_path(req.get("working_directory"))
     job = req.get("job_id")
@@ -724,6 +921,47 @@ def extract_data():
 
 @app.route("/prescreen_data", methods=["POST"])
 def prescreen_data():
+    """
+    Prescreen extracted MS1/MS2 outputs and write a QA summary table.
+
+    Reads the YAML config for thresholds and evaluates per-compound flags based on:
+    - Existence of MS1 EIC and MS2 files
+    - MS1 maximum intensity > MS1 threshold
+    - MS1 maximum intensity above noise (mean * S/N ratio)
+    - Presence of MS2 peaks above MS2 threshold
+    - Alignment: MS2 RT near MS1 peak RT within tolerance
+
+    Request JSON
+    ------------
+    working_directory : str
+        Working directory containing `extract_config.yaml`, `comprehensive_table.csv`,
+        and the `ms2_spectra/` directory produced by `/extract_data`.
+
+    Returns
+    -------
+    flask.Response
+        JSON response:
+        - 200: {"status": "success", "message": "Prescreening complete."}
+        - 500: {"status": "error", "message": "<exception>"} on failure
+
+    Side Effects
+    ------------
+    Writes `summary_table.csv` into `working_directory` with QA and alignment flags.
+
+    Output Columns
+    --------------
+    ID, adduct, tag,
+    qa_ms1_exists, qa_ms1_good_int, qa_ms1_above_noise,
+    qa_ms2_exists, qa_ms2_good_int, qa_ms2_near,
+    qa_pass, alignment, ms2_sel,
+    ms1_rt, ms2_rt
+
+    Notes
+    -----
+    - `qa_pass` is True only if all six QA flags are True.
+    - Alignment is set False when MS2 is missing or RT proximity fails.
+    """
+
     req = request.get_json(force=True)
     wd  = resolve_path(req.get("working_directory"))
     job = req.get("job_id")
@@ -734,6 +972,36 @@ def prescreen_data():
 
 @app.route("/get_csv")
 def get_csv():
+
+    """
+    Serve a per-compound extracted CSV file (EIC or MS2) from the spectra directory.
+
+    Query Parameters
+    ----------------
+    working_directory : str
+        Base working directory containing the `ms2_spectra/` folder.
+    compound_id : str
+        Compound identifier used in filenames.
+    tag : str
+        URL-encoded tag string used in filenames.
+    adduct : str
+        URL-encoded adduct string used in filenames.
+    type : {"EIC", "MS2"}
+        File type suffix identifying which extracted file to return.
+
+    Returns
+    -------
+    flask.Response
+        - 200: CSV file contents (text/csv)
+        - 400: "Missing parameters" if any required args are absent
+        - 404: if no matching file is found
+        - 500: stringified exception on unexpected errors
+
+    Notes
+    -----
+    The endpoint searches for files with prefix:
+    `{compound_id}_{adduct}_{tag}_{type}` under `<working_directory>/ms2_spectra/`.
+    """
     try:
         working_dir = os.path.expanduser(request.args.get("working_directory"))
         compound_id = request.args.get("compound_id")
@@ -764,6 +1032,25 @@ def get_csv():
 
 @app.route('/load_comprehensive_table', methods=['GET'])
 def load_comprehensive_table():
+    """
+    Load and return the generated comprehensive compound table as JSON records.
+
+    Query Parameters
+    ----------------
+    working_directory : str, optional
+        Directory containing `comprehensive_table.csv`. Defaults to `"."`.
+
+    Returns
+    -------
+    flask.Response
+        - 200: JSON list of row records (empty strings for NaNs)
+        - 200: empty list `[]` if the CSV does not exist (current behavior)
+        - 500: {"error": "..."} on unexpected errors
+
+    Side Effects
+    ------------
+    None.
+    """
     try:
         working_directory = os.path.expanduser(request.args.get("working_directory", "."))
         table_path = os.path.join(working_directory, "comprehensive_table.csv")
@@ -872,6 +1159,29 @@ def save_qa_flags():
 
 @app.route('/get_compound_plots', methods=['GET'])
 def get_compound_plots():
+    """
+    Return plot-ready data structures for a compound (currently dummy data).
+
+    Query Parameters
+    ----------------
+    compound_id : str
+        Compound identifier (currently unused in the dummy implementation).
+    working_directory : str, optional
+        Working directory (currently unused in the dummy implementation).
+
+    Returns
+    -------
+    flask.Response
+        JSON with three plot objects:
+        - eic: {"x": [...], "y": [...]}
+        - ms2: {"x": [...], "y": [...]}
+        - fragment: {"x": [...], "y": [...]}
+
+    Notes
+    -----
+    This endpoint currently returns synthetic curves and fragment peaks for
+    UI prototyping. Replace with real extracted data as needed.
+    """
     try:
         import numpy as np
         compound_id = request.args.get("compound_id")
@@ -898,6 +1208,32 @@ def get_compound_plots():
 
 @app.route('/export_fragments', methods=['POST'])
 def export_fragments():
+    """
+    Export fragment peaks for a compound to a CSV file (currently dummy content).
+
+    Request JSON
+    ------------
+    compound_id : str
+        Compound identifier used to name the output file.
+    working_directory : str
+        Working directory where `figures/` will be created if missing.
+
+    Returns
+    -------
+    flask.Response
+        JSON response:
+        - 200: {"message": "Exported fragment peaks to <.../figures/{compound_id}_fragments.csv>"}
+        - 500: {"error": "..."} on unexpected errors
+
+    Side Effects
+    ------------
+    Creates `<working_directory>/figures/` and writes `{compound_id}_fragments.csv`.
+
+    Notes
+    -----
+    The current implementation writes placeholder peaks. Replace with MS2-derived
+    fragment export logic for publication use.
+    """
     try:
         data = request.get_json()
         compound_id = data["compound_id"]
@@ -921,6 +1257,34 @@ def export_fragments():
 
 @app.route('/save_plots', methods=['POST'])
 def save_plots():
+    """
+    Save a compound summary plot PDF to disk (currently a dummy file).
+
+    Request JSON
+    ------------
+    compound_id : str
+        Compound identifier used to name the output file.
+    working_directory : str
+        Working directory where `figures/` will be created if missing.
+
+    Returns
+    -------
+    flask.Response
+        JSON response:
+        - 200: {"message": "Saved summary plot PDF to <.../figures/{compound_id}_summary.pdf>"}
+        - 500: {"error": "..."} on unexpected errors
+
+    Side Effects
+    ------------
+    Creates `<working_directory>/figures/` and writes `{compound_id}_summary.pdf`.
+
+    Notes
+    -----
+    The current implementation writes a plain text file with a `.pdf` extension
+    for scaffolding. Replace with actual PDF plotting/export code (e.g., matplotlib)
+    for publication-ready figures.
+    """
+
     try:
         data = request.get_json()
         compound_id = data["compound_id"]

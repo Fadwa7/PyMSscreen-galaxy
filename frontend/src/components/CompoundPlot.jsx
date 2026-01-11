@@ -1,3 +1,50 @@
+/**
+ * @typedef {Object} EICRow
+ * @property {string|number} rt - Retention time (minutes).
+ * @property {string|number} intensity - MS1 intensity.
+ */
+
+/**
+ * @typedef {Object} MS2Row
+ * @property {string|number} ms2_rt - MS2 retention time (minutes).
+ * @property {string|number} ms2_intensity - Total MS2 intensity.
+ * @property {string} peak_list - Semicolon-separated "m/z:intensity" fragment list.
+ */
+
+/**
+ * @typedef {Object} CompoundPlotRow
+ * @property {string} ID - Compound identifier.
+ * @property {string} tag - Tag associated with the mzML file.
+ * @property {string} adduct - Adduct used for m/z calculation.
+ * @property {string} SMILES - SMILES representation of the compound.
+ * @property {string} Name - Compound name.
+ * @property {EICRow[]} [eicData] - Extracted ion chromatogram data.
+ * @property {MS2Row[]} [ms2Data] - Extracted MS2 spectra data.
+ */
+
+/**
+ * @typedef {Object} PlotExportPayload
+ * @property {Array<{id: string, data: Object[], layout: Object}>} plots
+ */
+
+/**
+ * @file CompoundPlot.jsx
+ * @summary Plotly-based visualization of MS1 EICs, MS2 precursor peaks, and fragment spectra.
+ *
+ * @description
+ * This component renders a stacked, three-panel visualization for a selected compound:
+ * 1) MS1 extracted ion chromatogram (EIC)
+ * 2) MS2 precursor peak aligned to the MS1 apex
+ * 3) MS2 fragment ion spectrum
+ *
+ * Data are grouped by compound ID and rendered per tag/adduct combination.
+ * The component supports absolute and relative intensity scaling for MS2
+ * and fragment spectra.
+ *
+ * Export-ready plot objects are emitted to the parent component for saving
+ * or PDF generation.
+ */
+
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import Plot from 'react-plotly.js';
 import Papa from 'papaparse';
@@ -37,6 +84,21 @@ if (idx > -1 && idx < BASE_TAG_PALETTE.length) return BASE_TAG_PALETTE[idx];
 const hue = hashString(tag) % 360; // stable per tag
 return chroma.hsl(hue, 0.62, 0.52).hex();
 };
+
+
+/**
+ * Parse a semicolon-separated MS2 fragment peak list.
+ *
+ * @function parsePeakList
+ * @param {string} peakStr
+ * Fragment list encoded as "m/z:intensity;m/z:intensity;..."
+ *
+ * @returns {{x: number, y: number}[]}
+ * Parsed fragment peaks suitable for Plotly rendering.
+ *
+ * @remarks
+ * Invalid or non-numeric entries are filtered out.
+ */
 
 const parsePeakList = (peakStr) => {
   return peakStr.split(';').map((pair) => {
@@ -220,6 +282,31 @@ const TAG_DASHES  = ['solid', 'dash', 'dot', 'dashdot', 'longdash', 'longdashdot
 const getTagMarker = (idx) => TAG_MARKERS[idx % TAG_MARKERS.length];
 const getTagDash   = (idx) => TAG_DASHES[idx % TAG_DASHES.length];
 
+/**
+ * CompoundPlot component.
+ *
+ * @component
+ * @param {Object} props
+ * @param {CompoundPlotRow[]} props.compoundGroup
+ * Group of rows corresponding to a single compound ID across tags/adducts.
+ * @param {(payload: PlotExportPayload) => void} [props.onExportReady]
+ * Callback invoked when plots are ready for export.
+ *
+ * @returns {JSX.Element}
+ * Interactive stacked MS1/MS2 visualization.
+ *
+ * @state {boolean} useRelative
+ * If true, MS2 and fragment intensities are scaled to relative intensity (0–1).
+ *
+ * @state {Object|null} plotObj
+ * Plotly-compatible data and layout object for rendering.
+ *
+ * @remarks
+ * - MS2 spectra are aligned to the closest MS2 scan relative to the MS1 apex.
+ * - Color assignment is consistent per tag/adduct combination.
+ */
+
+
 const CompoundPlot = ({ compoundGroup, onExportReady, theme }) => {
   const handleExportSummary = async () => {
     console.log("Calling exportSummaryPDF with:", compoundGroup, appState.working_directory);
@@ -310,6 +397,25 @@ const exportFilename = useMemo(() => {
     const mz = first?.mz != null ? Number(first.mz).toFixed(4) : 'mz';
     return `${name.replace(/[^a-z0-9]+/gi, '_')}_mZ_${mz}`;
   }, [structureInfo, compoundGroup]);
+
+  /**
+ * Generate Plotly traces for MS1, MS2, and fragment spectra.
+ *
+ * @effect
+ * Recomputed whenever:
+ * - Selected compound group changes
+ * - Relative/absolute intensity mode changes
+ *
+ * @workflow
+ * 1) Determine MS1 apex from EIC
+ * 2) Select closest MS2 scan by retention time
+ * 3) Render MS1 EIC, MS2 precursor marker, and fragment peaks
+ * 4) Emit export-ready plot payload
+ *
+ * @sideEffects
+ * - Updates Plotly data/layout state
+ * - Calls `onExportReady` with export payload
+ */
  
   useEffect(() => {
     const fetchData = async () => {
