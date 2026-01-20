@@ -25,6 +25,7 @@ pyMSscreen provides a web-based interface for initial prescreening of mass spect
 ```bash
 git clone https://gitlab.com/uniluxembourg/lcsb/eci/pymsscreen.git
 cd your-repo
+```
 
 ### 2. Create a `.env` file
 
@@ -50,7 +51,25 @@ Ensure that this path exists and contains:
 
 - A `compounds.csv` file
 - One or more `.mzML` files
-```
+
+
+The `compounds.csv` file must include the following columns:
+
+- **`ID`** (required)  
+  Unique identifier for each compound.
+- **`Name`** (optional)  
+  Human-readable compound name.
+- **`SMILES`**  
+  SMILES representation of the compound structure.
+- **`mz`** 
+  Neutral mass of the compound.
+
+At least one of **`SMILES`** or **`mz`** must be provided for each compound.
+
+### Priority Rules
+
+- If **both `SMILES` and `mz` are provided**, the application **prioritizes `SMILES`** for compound processing.
+- If only one of these fields is provided, that value will be used.
 
 ### 3. Build the Docker containers
 
@@ -76,11 +95,16 @@ This will launch:
 ## Usage Instructions
 
 1. Navigate to `http://localhost:3000`
-2. Working Directory: /app/uploads/ (always set this path in the UI)
-3. Upload:
+2. Working Directory: /app/uploads/ (this is set by default in the UI)
+3. Upload **Input Files**:
    - The compound CSV
    - One or more `.mzML` files
 4. Click **"Save State"**
+   - This generates a `state.json` file that captures the current application state, including selected inputs and settings.
+5. Click **"Load State"**
+   The application reads from the previously generated **`state.json`** file.
+    - The user **must select the same compound CSV and `.mzML` files** that were used to create the `state.json`.
+    - Once **Load State** is clicked, the application resumes from the point where it was last saved, allowing the workflow to continue without repeating previous steps.
 5. Click **"Generate Table"**
 6. Proceed to the **Extraction** and **Prescreening** steps as needed
 7. Finally the *manual QA steps and plots are visualized in the **pyMSscreen Visualization Dashboard**
