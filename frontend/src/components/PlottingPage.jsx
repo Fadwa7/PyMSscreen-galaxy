@@ -415,7 +415,7 @@ const PlottingPage = () => {
       });
       setQaFlags(flags);
     }
-  }, [currentIndex, compoundOptions, groupedByID]);
+  }, [currentIndex, compoundOptions, groupedByID, summaryData]);
 
   const toggleFlag = (key, flag) => {
   setQaFlags(prev => {

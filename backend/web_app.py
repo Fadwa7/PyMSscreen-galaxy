@@ -20,6 +20,7 @@ try:
 except Exception:
     oms = None
 
+
 app = Flask(__name__)
 register_pdf_export(app)
 app.secret_key = 'supersecretkey'
@@ -31,6 +32,13 @@ def _no_cache(resp):
     resp.headers["Pragma"] = "no-cache"
     resp.headers["Expires"] = "0"
     return resp
+
+# === Base working directory (from .env / docker-compose) ===
+BASE_WORKING_DIR = os.getenv("WORKING_DIR", "/app/uploads")
+BASE_WORKING_DIR = os.path.abspath(os.path.expanduser(BASE_WORKING_DIR))
+
+print("BASE_WORKING_DIR =", BASE_WORKING_DIR)
+
     
 @app.errorhandler(500)
 def handle_500(e):
@@ -1052,37 +1060,67 @@ def load_comprehensive_table():
     None.
     """
     try:
-        working_directory = os.path.expanduser(request.args.get("working_directory", "."))
-        table_path = os.path.join(working_directory, "comprehensive_table.csv")
+        #working_directory = os.path.expanduser(request.args.get("working_directory", "."))
+        table_path = os.path.join(BASE_WORKING_DIR, "comprehensive_table.csv")
         print("Requested path:", request.args.get("working_directory"))
         print(" Resolved path:", table_path)
+        print("Looking for:", table_path)
 
-        if not os.path.exists(table_path):
-            print("File not found at resolved path!")
-            return jsonify([])  # return empty list
+
+        if not os.path.isdir(BASE_WORKING_DIR):
+            return jsonify({
+                "error": f"Base directory not found: {BASE_WORKING_DIR}"
+            }), 400
+        if not os.path.isfile(table_path):
+            return jsonify([]), 200
 
         df = pd.read_csv(table_path)
-        df.fillna("", inplace=True)
+        df.replace(r'^\s*$', np.nan, regex=True, inplace=True)
+
+        for col in df.select_dtypes(include=["float64", "int64"]):
+          df[col] = df[col].fillna(np.nan)
+
+        df = df.replace([np.nan, np.inf, -np.inf], None)
 
         compounds = df.to_dict(orient="records")
-        return jsonify(compounds)
+        return app.response_class(
+            response=json.dumps(compounds, allow_nan=False),
+            mimetype="application/json"
+        )
 
     except Exception as e:
+        print("load_comprehensive_table ERROR:", e)
         return jsonify({"error": str(e)}), 500
 
 @app.route('/load_summary_table', methods=['GET'])
 def load_summary_table():
     try:
-        working_directory = os.path.expanduser(request.args.get("working_directory", "."))
-        table_path = os.path.join(working_directory, "summary_table.csv")
+        #working_directory = os.path.expanduser(request.args.get("working_directory", "."))
+        table_path = os.path.join(BASE_WORKING_DIR, "summary_table.csv")
+
+        print("Looking for:", table_path)
 
         if not os.path.exists(table_path):
             return jsonify([])
 
         df = pd.read_csv(table_path)
-        df.fillna("", inplace=True)
-        return jsonify(df.to_dict(orient="records"))
+        df.replace(r'^\s*$', np.nan, regex=True, inplace=True)
+
+        # Preserve numeric columns
+        for col in df.select_dtypes(include=["float64", "int64"]):
+            df[col] = df[col].fillna(np.nan)
+
+        df = df.replace([np.nan, np.inf, -np.inf], None)
+
+        records = df.to_dict(orient="records")
+        return app.response_class(
+            response=json.dumps(records, allow_nan=False),
+            mimetype="application/json"
+        )
+            
+      
     except Exception as e:
+        print("load_summary_table ERROR:", e)
         return jsonify({"error": str(e)}), 500
 
 @app.route('/save_qa_flags', methods=['POST'])
@@ -1303,4 +1341,9 @@ def save_plots():
 
 
 if __name__ == '__main__':
+    print("Using data directory:", BASE_WORKING_DIR)
+
+    if not os.path.exists(BASE_WORKING_DIR):
+        print("WARNING: Base directory does not exist!")
+
     app.run(debug=True, port=5000)
