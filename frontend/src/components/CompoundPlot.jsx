@@ -201,7 +201,7 @@ const handleHighRes = (smiles, compoundName) => {
   `);
 };
 
-function movingAverage(arr, window = 5) {
+export function movingAverage(arr, window = 5) {
 if (window < 2) return arr.slice();
 const half = Math.floor(window / 2);
 const out = new Array(arr.length).fill(0);
@@ -220,7 +220,7 @@ return out;
 }
 
 
-function findTopPeaks(rtArr, intArr, {
+export function findTopPeaks(rtArr, intArr, {
 n = 3,
 minSeparation = 0.15,
 prominenceFrac = 0.05,

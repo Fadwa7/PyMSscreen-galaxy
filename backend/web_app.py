@@ -5,6 +5,7 @@ import json
 import urllib.parse
 import pandas as pd
 import numpy as np
+from scipy.signal import find_peaks
 import yaml
 from rdkit import Chem
 from rdkit.Chem import Descriptors, rdMolDescriptors
@@ -741,7 +742,31 @@ def _prescreen_impl(working_dir, job_id=None) -> dict:
                     summary["qa_ms1_exists"] = True
                     max_int  = eic_df["intensity"].max()
                     mean_int = eic_df["intensity"].mean()
-                    rt_peak  = float(eic_df.loc[eic_df["intensity"].idxmax(), "rt"])
+                     # --- prominence-filtered peak detection (mirrors CompoundPlot.jsx findTopPeaks) ---
+                    intensities = eic_df["intensity"].to_numpy(dtype=float)
+                    rts         = eic_df["rt"].to_numpy(dtype=float)
+
+                    # 1) smooth with a 5-point moving average
+                    kernel = np.ones(5) / 5
+                    sm = np.convolve(intensities, kernel, mode='same')
+
+                    # 2) find local maxima with minimum width of 3 points
+                    from scipy.signal import find_peaks
+                    peak_idxs, props = find_peaks(sm, width=3)
+                    rt_peak  = None
+                    if len(peak_idxs) > 0:
+                        # 3) filter by prominence: peak must be > 5% of global smoothed max
+                        min_prom = sm.max() * 0.05
+                        prominent = [i for i in peak_idxs if (sm[i] - max(sm[max(0,i-10):i].min() if i>0 else 0,
+                                    sm[i+1:min(len(sm),i+10)].min() if i<len(sm)-1 else 0, 1e-12)) >= min_prom]
+                        if not prominent:
+                            prominent = list(peak_idxs)  # fallback: use all peaks if none pass prominence
+                        # 4) pick the most intense among prominent peaks
+                        best = max(prominent, key=lambda i: intensities[i])
+                        rt_peak = float(rts[best])
+                    else:
+                        # fallback to raw max if no peaks detected at all
+                        rt_peak = float(eic_df.loc[eic_df["intensity"].idxmax(), "rt"])
                     summary["ms1_rt"]   = rt_peak
                     summary["alignment"]= True
                     if max_int > ms1_thresh: summary["qa_ms1_good_int"] = True

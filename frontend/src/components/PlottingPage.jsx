@@ -48,10 +48,11 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Select from 'react-select';
 import axios from 'axios';
 import { useAppState } from '../context/AppStateContext';
-import CompoundPlot from './CompoundPlot';
+import CompoundPlot, { findTopPeaks, movingAverage } from './CompoundPlot';
+import Papa from 'papaparse';
 import { exportCombinedPlot } from './PlotExporter';
-import { exportSummaryPDF } from '../api/api';
-import { saveQAFlags } from '../api/api';
+import { exportSummaryPDF, saveQAFlags, loadExtractionConfig } from '../api/api';
+//import { saveQAFlags } from '../api/api';
 import { useNavigate } from 'react-router-dom';
 
 // --- dark mode support (inline, no CSS files) ---
@@ -436,78 +437,92 @@ const handleExportPeakList = async () => {
 
   try {
     const { ID, adduct, tag } = selectedGroup[0];
-    const summaryRow = summaryData.find(
-      (r) => r.ID.toString() === ID.toString() && r.adduct === adduct && r.tag === tag
-    );
 
-    if (!summaryRow?.ms2_rt) {
-      setToastMessage('⚠️ No MS2 scan available.');
-      setTimeout(() => setToastMessage(''), 3000);
-      return;
-    }
+    // Load RT tolerance from config (same as CompoundPlot)
+    const retTimeShiftTol = await loadExtractionConfig(appState.working_directory);
+    const toNumber = (v) => {
+      const n = parseFloat(String(v ?? '').replace(/[^\d.+\-eE]/g, ''));
+      return Number.isFinite(n) ? n : 0.5;
+    };
+    const tolerance = toNumber(retTimeShiftTol);
 
-    const ms2Rt = parseFloat(summaryRow.ms2_rt);
-    console.log('MS2 RT:', ms2Rt);  // Log MS2 RT value
-
-    // Make the API call
-    const res = await axios.get('http://localhost:5000/get_csv', {
-      params: {
-        working_directory: appState.working_directory,
-        compound_id: ID,
-        tag,
-        adduct,
-        type: 'MS2'
-      }
+    // 1) Load EIC and find the top peak RT using the same logic as CompoundPlot
+    const eicRes = await axios.get('http://localhost:5000/get_csv', {
+      params: { working_directory: appState.working_directory, compound_id: ID, tag, adduct, type: 'EIC' }
+    });
+    const eicData = await new Promise((resolve) => {
+      Papa.parse(eicRes.data, { header: true, skipEmptyLines: true, complete: (r) => resolve(r.data) });
     });
 
-    // Log the API response
-    console.log('API Response:', res.data);  // Log the full response data
-
-    const csvText = res.data;
-    if (!csvText) {
-      setToastMessage('⚠️ No CSV data returned.');
+    if (!eicData.length) {
+      setToastMessage('⚠️ No EIC data found.');
       setTimeout(() => setToastMessage(''), 3000);
       return;
     }
 
-    const lines = csvText.trim().split('\n');
-    const headers = lines[0].split(',');
-    const rtIdx = headers.indexOf('ms2_rt');
-    const peakIdx = headers.indexOf('peak_list');
+    const rts = eicData.map((row) => parseFloat(row.rt));
+    const intensities = eicData.map((row) => parseFloat(row.intensity));
 
-    let closestLine = null;
-    let minDiff = Infinity;
+    // findTopPeaks uses smoothing + prominence — won't be fooled by artefact spikes
+    const topPeaks = findTopPeaks(rts, intensities, {
+      n: 3, minSeparation: 0.15, prominenceFrac: 0.05, minWidthPoints: 3
+    });
 
-    for (let i = 1; i < lines.length; i++) {
-      const row = lines[i].split(',');
-      const rt = parseFloat(row[rtIdx]);
-      const diff = Math.abs(rt - ms2Rt);
-      if (diff < minDiff) {
-        minDiff = diff;
-        closestLine = row;
-      }
-    }
-
-    if (!closestLine || !closestLine[peakIdx]) {
-      setToastMessage('⚠️ No MS2 peak list found.');
+    if (!topPeaks.length) {
+      setToastMessage('⚠️ No EIC peak detected.');
       setTimeout(() => setToastMessage(''), 3000);
       return;
     }
 
-    const peakString = closestLine[peakIdx];
-    const formatted = peakString
+    const apexRT = topPeaks[0].rt; // most intense real peak (same as CompoundPlot i===0)
+
+    // 2) Load MS2 CSV
+    const ms2Res = await axios.get('http://localhost:5000/get_csv', {
+      params: { working_directory: appState.working_directory, compound_id: ID, tag, adduct, type: 'MS2' }
+    });
+    const ms2Data = await new Promise((resolve) => {
+      Papa.parse(ms2Res.data, { header: true, skipEmptyLines: true, complete: (r) => resolve(r.data) });
+    });
+
+    if (!ms2Data.length) {
+      setToastMessage('⚠️ No MS2 data found.');
+      setTimeout(() => setToastMessage(''), 3000);
+      return;
+    }
+
+    // 3) Find closest MS2 scan within tolerance of the real apex RT
+    const candidates = ms2Data
+      .map((row) => ({ ...row, rt: parseFloat(row.ms2_rt) }))
+      .filter((row) => isFinite(row.rt) && Math.abs(row.rt - apexRT) <= tolerance);
+
+    if (!candidates.length) {
+      setToastMessage(`⚠️ No MS2 scan within ${tolerance} min of apex RT ${apexRT.toFixed(2)}.`);
+      setTimeout(() => setToastMessage(''), 3000);
+      return;
+    }
+
+    const closest = candidates.reduce((a, b) =>
+      Math.abs(a.rt - apexRT) < Math.abs(b.rt - apexRT) ? a : b
+    );
+
+    if (!closest.peak_list) {
+      setToastMessage('⚠️ No peak list found for that MS2 scan.');
+      setTimeout(() => setToastMessage(''), 3000);
+      return;
+    }
+
+    // 4) Format as mz\tintensity and copy to clipboard
+    const formatted = closest.peak_list
       .split(';')
-      .map((p) => {
-        const [mz, intensity] = p.split(':');
-        return `${mz}\t${intensity}`;
-      })
+      .map((p) => { const [mz, intensity] = p.split(':'); return `${mz}\t${intensity}`; })
       .join('\n');
 
     await navigator.clipboard.writeText(formatted);
-    setToastMessage('✅ MS2 peak list copied to clipboard');
+    setToastMessage(`✅ Peak list copied — apex RT: ${apexRT.toFixed(2)}, MS2 RT: ${closest.rt.toFixed(2)}`);
     setTimeout(() => setToastMessage(''), 3000);
+
   } catch (err) {
-    console.error('Error in export:', err);  // Log the error
+    console.error('Error in export:', err);
     setToastMessage('❌ Failed to export MS2 peak list.');
     setTimeout(() => setToastMessage(''), 3000);
   }
