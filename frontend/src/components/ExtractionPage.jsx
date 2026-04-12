@@ -254,7 +254,7 @@ export default function ExtractionPage() {
         if (j.state === 'done') {
           clearInterval(poll);
           setProgress(100);
-          setStatus('✅ Extraction & Prescreening complete! Summary saved to summary_table.csv');
+          setStatus('✅ Extraction & Prescreening complete & msp file generation complete!! Summary saved to summary_table.csv');
         } else if (j.state === 'error') {
           clearInterval(poll);
           setStatus(`❌ ${j.message || 'Job failed'}`);

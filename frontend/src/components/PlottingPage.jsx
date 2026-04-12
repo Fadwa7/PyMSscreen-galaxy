@@ -528,6 +528,114 @@ const handleExportPeakList = async () => {
   }
 };
 
+const handleDownloadMspFile = async () => {
+  if (!appState?.working_directory || !selectedGroup || !isSingleTagSelected()) return;
+
+  try {
+    const { ID, adduct, tag } = selectedGroup[0];
+    const summaryRow = summaryData.find(
+      (r) => r.ID.toString() === ID.toString() && r.adduct === adduct && r.tag === tag
+    );
+
+    if (!summaryRow?.ms2_rt) {
+      setToastMessage('⚠️ No MS2 scan available.');
+      setTimeout(() => setToastMessage(''), 3000);
+      return;
+    }
+
+    const ms2Rt = parseFloat(summaryRow.ms2_rt);
+    console.log('MS2 RT:', ms2Rt);  // Log MS2 RT value
+
+    // Make the API call
+    const res = await axios.get('http://localhost:5000/get_csv', {
+      params: {
+        working_directory: appState.working_directory,
+        compound_id: ID,
+        tag,
+        adduct,
+        type: 'MS2'
+      }
+    });
+
+    // Log the API response
+    console.log('API Response:', res.data);  // Log the full response data
+
+    const csvText = res.data;
+    if (!csvText) {
+      setToastMessage('⚠️ No CSV data returned.');
+      setTimeout(() => setToastMessage(''), 3000);
+      return;
+    }
+
+    const lines = csvText.trim().split('\n');
+    const headers = lines[0].split(',');
+    const rtIdx = headers.indexOf('ms2_rt');
+    const peakIdx = headers.indexOf('peak_list');
+
+    let closestLine = null;
+    let minDiff = Infinity;
+
+    for (let i = 1; i < lines.length; i++) {
+      const row = lines[i].split(',');
+      const rt = parseFloat(row[rtIdx]);
+      const diff = Math.abs(rt - ms2Rt);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestLine = row;
+      }
+    }
+
+    if (!closestLine || !closestLine[peakIdx]) {
+      setToastMessage('⚠️ No MS2 peak list found.');
+      setTimeout(() => setToastMessage(''), 3000);
+      return;
+    }
+
+    const peakString = closestLine[peakIdx];
+    const peaks = peakString
+      .split(';')
+      .map((p) => {
+        const [mz, intensity] = p.split(':');
+        return `${mz}\t${intensity}`;
+      })
+      .join('\n');
+
+    /* MSP METADATA */
+    const mspText = [
+      `Name: ${summaryRow.Name || ID}`,
+      `COMMENT: ID= ${ID}`,
+      `COMMENT: Tag= ${summaryRow.tag}`,
+      `PRECURSORMZ: ${summaryRow.mz || ""}`,
+      `PRECURSORTYPE: ${adduct}`,
+      `SMILES: ${summaryRow.SMILES || ""}`,
+      `FORMULA: ${summaryRow.formula || ""}`,
+      `InChIKey: ${summaryRow.InChIKey || ""}`,
+      `RT: ${ms2Rt}`,
+      `Num Peaks: ${peakString.split(';').length}`,
+      peaks,
+      ""
+    ].join('\n');
+
+    /* DOWNLOAD FILE */
+    const blob = new Blob([mspText], { type: "text/plain" });
+    const url = window.URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${ID}_${tag}_${adduct}.msp`;
+
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setToastMessage('✅ MSP file downloaded');
+    setTimeout(() => setToastMessage(''), 3000);
+  } catch (err) {
+    console.error('Error in export:', err);  // Log the error
+    setToastMessage('❌ Failed to download MSP file.');
+    setTimeout(() => setToastMessage(''), 3000);
+  }
+};
+
   /**
  * Export the currently displayed compound plot.
  *
@@ -868,6 +976,25 @@ useEffect(() => {
       }
     >
       📋 Export Peak List
+    </button>
+
+    <button
+      onClick={handleDownloadMspFile}
+      disabled={!isSingleTagSelected()}
+      style={{
+        ...exportPeakListButtonStyle,
+        marginTop: 10,
+        width: '100%',
+        opacity: isSingleTagSelected() ? 1 : 0.5,
+        cursor: isSingleTagSelected() ? 'pointer' : 'not-allowed'
+      }}
+      title={
+        isSingleTagSelected()
+          ? 'Download MSP file'
+          : 'Select a single tag to enable MS2 export'
+      }
+    >
+      📥 Download MSP file
     </button>
   </div>
 )}
