@@ -7,8 +7,10 @@ import pandas as pd
 import numpy as np
 from scipy.signal import find_peaks
 import yaml
+import re
 from rdkit import Chem
 from rdkit.Chem import Descriptors, rdMolDescriptors
+from rdkit.Chem.inchi import MolToInchiKey
 from multiprocessing import Process
 import uuid
 import requests
@@ -364,7 +366,7 @@ def generate_table():
         compound_df = pd.read_csv(compound_csv_path)
         # Normalize column names (case-insensitive)
         compound_df.columns = [c.strip() for c in compound_df.columns]
-        compound_df.columns = [c.lower() if c.lower() in ["id", "name", "smiles", "mz", "rt"] else c for c in compound_df.columns]
+        compound_df.columns = [c.lower() if c.lower() in ["id", "name", "smiles", "mz", "rt", "precursor_mz"] else c for c in compound_df.columns]
         output_rows = []
         compound_set = os.path.splitext(os.path.basename(compound_csv))[0]
 
@@ -373,8 +375,13 @@ def generate_table():
         pos_adducts = list(adducts.get("positive") or [])
         neg_adducts = list(adducts.get("negative") or [])
 
+        has_precursor_rows = (
+            "precursor_mz" in compound_df.columns and
+            compound_df["precursor_mz"].notna().any()
+        )
+
         has_legacy = any((f.get("adduct") or "").strip() for f in state.get("mzml_files", []))
-        if not has_legacy and not pos_adducts and not neg_adducts:
+        if not has_precursor_rows and not has_legacy and not pos_adducts and not neg_adducts:
             return jsonify({"error": "No adducts selected. Choose at least one positive or negative adduct in the UI and Save State."}), 400
         
         files_resolved = []
@@ -418,20 +425,28 @@ def generate_table():
             smiles = getattr(compound, "smiles", "")
             mz_from_csv = getattr(compound, "mz", None)
             rt_from_csv = getattr(compound, "rt", "")
+            precursor_mz = getattr(compound, "precursor_mz", None)
             name = getattr(compound, "name", "")
             compound_id = getattr(compound, "id")
 
-            neutral_mass = None
+            target_mz = None
             formula = ""
             known_type = "structure"
             inchikey = ""
+            is_precursor_mode = False
 
-            # === CASE 1: SMILES provided ===
-            if isinstance(smiles, str) and smiles.strip():
+            # === CASE 1: direct precursor m/z provided ===
+            if pd.notnull(precursor_mz):
+                target_mz = float(precursor_mz)
+                known_type = "feature"
+                is_precursor_mode = True
+
+            # === CASE 2: SMILES provided ===
+            elif isinstance(smiles, str) and smiles.strip():
                 try:
                     mol = Chem.MolFromSmiles(smiles)
                     if mol:
-                        neutral_mass = Descriptors.ExactMolWt(mol)
+                        target_mz = Descriptors.ExactMolWt(mol)
                         formula = rdMolDescriptors.CalcMolFormula(mol)
                         try:
                             inchikey = MolToInchiKey(mol)
@@ -444,26 +459,44 @@ def generate_table():
                     print(f"SMILES parse failed for ID {compound_id}: {e}")
                     known_type = "suspect"
 
-            # === CASE 2: No SMILES, use provided m/z ===
+            # === CASE 3: No SMILES, use provided m/z ===
             else:
                 known_type = "suspect"
                 if pd.notnull(mz_from_csv):
-                    neutral_mass = float(mz_from_csv)
+                    target_mz = float(mz_from_csv)
                 else:
                     print(f"Missing both SMILES and m/z for ID {compound_id}")
                     continue
 
             for f in files_resolved:
+                if is_precursor_mode:
+                    row = {
+                        "ID": compound_id,
+                        "mz": f"{target_mz:.6f}",
+                        "rt": rt_from_csv if pd.notnull(rt_from_csv) else "",
+                        "adduct": "",
+                        "tag": f["tag"],
+                        "set": compound_set,
+                        "Name": name,
+                        "known": known_type,
+                        "SMILES": smiles,
+                        "Formula": formula,
+                        "InChIKey": inchikey,
+                        "file": f["filename"],
+                    }
+                    output_rows.append(row)
+                    continue
+
                 if not f["adducts"]:
-                    continue  # no adducts for this file's polarity
+                    continue
 
                 for adduct in f["adducts"]:
                     adduct_mass = ADDUCT_MASS.get(adduct)
                     if adduct_mass is None:
                         print(f" Unknown adduct '{adduct}' for file {f['filename']}")
                         continue
-                    # If known structure, add adduct mass. If suspect, keep mz as given.
-                    mz = neutral_mass + adduct_mass if known_type == "structure" else neutral_mass
+
+                    mz = target_mz + adduct_mass if known_type == "structure" else target_mz
 
                     row = {
                         "ID": compound_id,
@@ -756,12 +789,17 @@ def get_csv():
         # Decode URL-encoded values
         tag = urllib.parse.unquote(request.args.get("tag", ""))
         adduct = urllib.parse.unquote(request.args.get("adduct", ""))
+        if adduct.strip().lower() in {"nan", "null", "none"}:
+          adduct = ""
 
-        if not all([working_dir, compound_id, tag, adduct, file_type]):
+        if not all([working_dir, compound_id, tag, file_type]):
             return "Missing parameters", 400
 
         spectra_dir = os.path.join(working_dir, "ms2_spectra")
-        prefix = f"{compound_id}_{adduct}_{tag}_{file_type}"
+        if adduct.strip():
+            prefix = f"{compound_id}_{adduct}_{tag}_{file_type}"
+        else:
+            prefix = f"{compound_id}_{tag}_{file_type}"
         
         # Debug print path
         print(f"Looking for files in: {spectra_dir}")

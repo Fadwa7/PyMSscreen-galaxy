@@ -11,7 +11,18 @@ from flask import request, jsonify
 #from .web_app import app
 from app.jobs.job_store import update_job
 
+def build_feature_base(ID, adduct, tag):
+    if pd.isna(adduct):
+        adduct = ""
+    else:
+        adduct = str(adduct).strip()
+        if adduct.lower() == "nan":
+            adduct = ""
 
+    tag = str(tag).strip()
+    if adduct:
+        return f"{ID}_{adduct}_{tag}"
+    return f"{ID}_{tag}"
 # ==========================================================
 # EXTRACTION  
 # ==========================================================
@@ -93,7 +104,8 @@ def _extract_data_impl(working_dir, job_id=None) -> dict:
                     eic_rt.append(rt); eic_int.append(intensity)
 
                 eic_df   = pd.DataFrame({"rt": eic_rt, "intensity": eic_int})
-                eic_path = os.path.join(spectra_dir, f"{row.ID}_{row_adduct}_{tag}_EIC.csv")
+                base = build_feature_base(row.ID, row.adduct, tag)
+                eic_path = os.path.join(spectra_dir, f"{base}_EIC.csv")
                 try:
                     eic_df.to_csv(eic_path, index=False)
                 except Exception as e:
@@ -125,7 +137,7 @@ def _extract_data_impl(working_dir, job_id=None) -> dict:
                     })
                 if matched_ms2:
                     ms2_df   = pd.DataFrame(matched_ms2)
-                    ms2_path = os.path.join(spectra_dir, f"{row.ID}_{row_adduct}_{tag}_MS2.csv")
+                    ms2_path = ms2_path = os.path.join(spectra_dir, f"{base}_MS2.csv")
                     try:
                         ms2_df.to_csv(ms2_path, index=False)
                     except Exception as e:
@@ -167,7 +179,7 @@ def _prescreen_impl(working_dir, job_id=None) -> dict:
         done  = 0
 
         for row in compound_df.itertuples():
-            base = f"{row.ID}_{row.adduct}_{row.tag}"
+            base = build_feature_base(row.ID, row.adduct, row.tag)
             eic_path = os.path.join(spectra_dir, f"{base}_EIC.csv")
             ms2_path = os.path.join(spectra_dir, f"{base}_MS2.csv")
 

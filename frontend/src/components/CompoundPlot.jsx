@@ -110,12 +110,14 @@ const parsePeakList = (peakStr) => {
 const encodeParam = (value) => encodeURIComponent(value);
 
 const loadCSV = async (compoundId, type, tag, adduct, workingDir) => {
+  const safeAdduct =
+    adduct === null || adduct === undefined || adduct === 'null' ? '' : adduct;
   const params = new URLSearchParams({
     working_directory: workingDir,
     compound_id: compoundId,
     type,
     tag,
-    adduct,
+    adduct: safeAdduct,
   });
   try {
     const res = await axios.get(`http://localhost:5000/get_csv?${params}`);
@@ -474,6 +476,7 @@ const exportFilename = useMemo(() => {
             const lg = `peak-${compoundId}-${i + 1}`;
             const rtStr = isFinite(pk.rt) ? pk.rt.toFixed(2) : 'N/A';
             const intStr = isFinite(pk.intensity) ? pk.intensity.toExponential(2) : 'N/A';
+            const adductLabel = adduct ? ` | ${adduct}` : '';
 
           // Full EIC trace inside peak group
           
@@ -481,7 +484,7 @@ const exportFilename = useMemo(() => {
               x: rts,
               y: intensities,
               mode: 'lines',
-              name: `MS1 | ${tag} | RT: ${rtStr} | ${adduct} | ${compoundId} | I: ${intStr}`,
+              name: `MS1 | ${tag} | RT: ${rtStr}${adductLabel} | ${compoundId} | I: ${intStr}`,
               xaxis: 'x1',
               yaxis: 'y1',
               showlegend: false,
@@ -498,7 +501,7 @@ const exportFilename = useMemo(() => {
               y: [pk.intensity],
               mode: 'markers',
               marker: { size: publicationMode ? PUB.markerSize : 10, symbol: markerSymbol, color },
-              name: `MS1 | ${tag} | RT: ${rtStr} | ${adduct} | ${compoundId} | I: ${intStr}`,
+              name: `MS1 | ${tag} | RT: ${rtStr}${adductLabel} | ${compoundId} | I: ${intStr}`,
               legendgroup: lg,
               xaxis: 'x1',
               yaxis: 'y1',
@@ -522,7 +525,7 @@ const exportFilename = useMemo(() => {
                 x: [closest.rt, closest.rt],
                 y: useRelative ? [0, 1050] : [0, maxMS1Y * 1.1],
                 mode: 'lines',
-                name: `MS2 Peak | ${tag} | RT: ${closest.rt.toFixed(2)} | ${adduct} | ${compoundId}`,
+                name: `MS2 Peak | ${tag} | RT: ${closest.rt.toFixed(2)}${adductLabel} | ${compoundId}`,
                 line: { dash: 'dash', color, width: publicationMode ? 2.5 : 2 },
                 xaxis: 'x2',
                 yaxis: 'y2',
@@ -560,16 +563,19 @@ const exportFilename = useMemo(() => {
     }
 
       // Build layout AFTER data so ranges can use computed max/min (FIX)
+       const hasName =
+          !!first?.Name &&
+          String(first.Name).trim().toLowerCase() !== 'null';
         const layout = {
         height: 1200,
         width: 1000,
         margin: { l: 80, r: 60, t: 40, b: 50 },
         grid: { rows: 3, columns: 1, pattern: 'independent', roworder: 'top to bottom' },
         title: {
-          text: first.known === "suspect"
-            ? `Mass Spectra Overview — m/z: ${parseFloat(first.mz).toFixed(4)}`
-            : `Mass Spectra Overview — Name: ${first.Name} | m/z: ${parseFloat(first.mz).toFixed(4)}`,
-          xanchor: 'left',
+          text: hasName
+            ? `Mass Spectra Overview — Name: ${String(first.Name).trim()} | m/z: ${parseFloat(first.mz).toFixed(4)}`
+            : `Mass Spectra Overview — m/z: ${parseFloat(first.mz).toFixed(4)}`,
+           xanchor: 'left',
           x: 0
         }, 
         font: { family: PUB.fontFamily, size: publicationMode ? PUB.tickSize : 12 },    
@@ -579,6 +585,7 @@ const exportFilename = useMemo(() => {
           orientation: 'v',
         },
         uirevision: uiRev,
+      
 
         // EIC
         xaxis: { title:{ text: 'RT (min)',font: { size: publicationMode ? PUB.axisLabelSize : 12 }},tickfont: { size: publicationMode ? PUB.tickSize : 12 }, showline: true, linewidth: 1, linecolor: '#000', mirror: 'allticks', range: hasRT ? [rtHint - halfWindow, rtHint + halfWindow] : [0, 30], ticks: 'outside', ticklen: 6, tickwidth: 1,

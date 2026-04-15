@@ -313,7 +313,10 @@ const PlottingPage = () => {
       const rowAdduct = row.adduct ? row.adduct.trim() : '';
 
       const tagMatch = selectedTags.length === 0 || rowTags.some(t => tagSet.has(t));
-      const adductMatch = selectedAdducts.length === 0 || adductSet.has(rowAdduct);
+      const adductMatch =
+        selectedAdducts.length === 0 ||
+        rowAdduct === "" ||   //  allow precursor rows always
+        adductSet.has(rowAdduct);
 
       if (tagMatch && adductMatch) {
         if (!grouped[row.ID]) grouped[row.ID] = [];
@@ -333,7 +336,9 @@ const PlottingPage = () => {
       });
       const label =  structureRow
         ? `${entry.id} - ${String(structureRow.Name).trim()}`
-        : `${entry.id} - ${Number(first?.mz ?? 0).toFixed(4)}`;
+        : first?.known === "feature"
+          ? `${entry.id} -  m/z ${Number(first?.mz ?? 0).toFixed(4)}`
+          : `${entry.id} - ${Number(first?.mz ?? 0).toFixed(4)}`;
       return {
         value: entry.id,
         label
@@ -368,7 +373,8 @@ const PlottingPage = () => {
       const fieldValue = row[field];
       if (typeof fieldValue === 'string') {
         fieldValue.split(',').forEach((val) => {
-          if (val.trim()) set.add(val.trim());
+          const clean = val.trim();
+          if (clean) set.add(clean);
         });
       } else if (typeof fieldValue === 'number') {
         set.add(fieldValue.toString());
@@ -601,12 +607,16 @@ const handleDownloadMspFile = async () => {
       .join('\n');
 
     /* MSP METADATA */
+    const safeAdduct =
+      adduct == null || adduct === 'null' || adduct === 'nan' || String(adduct).trim() === ''
+        ? 'noadduct'
+        : String(adduct).trim();
     const mspText = [
       `Name: ${summaryRow.Name || ID}`,
       `COMMENT: ID= ${ID}`,
       `COMMENT: Tag= ${summaryRow.tag}`,
       `PRECURSORMZ: ${summaryRow.mz || ""}`,
-      `PRECURSORTYPE: ${adduct}`,
+      `PRECURSORTYPE: ${safeAdduct === 'noadduct' ? '' : safeAdduct}`,
       `SMILES: ${summaryRow.SMILES || ""}`,
       `FORMULA: ${summaryRow.formula || ""}`,
       `InChIKey: ${summaryRow.InChIKey || ""}`,
@@ -622,7 +632,9 @@ const handleDownloadMspFile = async () => {
 
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${ID}_${tag}_${adduct}.msp`;
+    a.download = safeAdduct === 'noadduct'
+      ? `${ID}_${tag}.msp`
+      : `${ID}_${tag}_${safeAdduct}.msp`;
 
     document.body.appendChild(a);
     a.click();
@@ -655,9 +667,21 @@ const handleDownloadMspFile = async () => {
     if (!groupToUse.length || !appState?.working_directory) return;
     const compoundId = groupToUse[0].ID;
     const tags = [...new Set(groupToUse.map(row => row.tag))].join('_');
-    const adducts = [...new Set(groupToUse.map(row => row.adduct))];
-    const adductPart = adducts.length === 1 ? adducts[0] : 'multiadducts';
-    const defaultName = `${compoundId}_${tags}_${adductPart}`.replace(/\s+/g, '');
+    const adducts = [
+      ...new Set(
+        groupToUse
+          .map(row => row.adduct)
+          .map(a => (a == null || a === 'null' || a === 'nan' ? '' : String(a).trim()))
+          .filter(Boolean)
+      )
+    ];
+    const adductPart =
+      adducts.length === 0 ? 'noadduct' :
+      adducts.length === 1 ? adducts[0] :
+      'multiadducts';
+    const defaultName = adductPart === 'noadduct'
+      ? `${compoundId}_${tags}`.replace(/\s+/g, '')
+      : `${compoundId}_${tags}_${adductPart}`.replace(/\s+/g, '');
     const filename = (singlePlotFilename || defaultName).trim();
     if (exportPayload) {
       exportCombinedPlot({ ...exportPayload, filename });
