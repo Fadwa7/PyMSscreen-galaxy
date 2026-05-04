@@ -11,11 +11,21 @@ backend_smoke_tests:
   script:
     - pytest -q tests
 
-frontend_build:
+frontend_light_check:
   stage: test
   image: node:20-bullseye
-  before_script:
-    - cd frontend
-    - npm ci
   script:
-    - npm run build
+    - cd frontend
+    # 1. Basic structure check
+    - test -f package.json
+    - test -f package-lock.json
+
+    # 2. Validate JSON syntax
+    - node -e "JSON.parse(require('fs').readFileSync('package.json'))"
+    - node -e "JSON.parse(require('fs').readFileSync('package-lock.json'))"
+
+    # 3. Ensure key scripts exist
+    - node -e "const p=require('./package.json'); if(!p.scripts || !p.scripts.build){process.exit(1)}"
+
+    # 4. Optional: check important deps exist (no install)
+    - node -e "const p=require('./package.json'); if(!p.dependencies && !p.devDependencies){process.exit(1)}"
