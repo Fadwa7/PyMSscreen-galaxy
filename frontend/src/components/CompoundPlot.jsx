@@ -50,7 +50,7 @@ import Plot from 'react-plotly.js';
 import Papa from 'papaparse';
 import axios from 'axios';
 import { useAppState } from '../context/AppStateContext';
-import { loadExtractionConfig, saveExtractConfig, exportSummaryPDF } from '../api/api';
+import { loadExtractionConfig, saveExtractConfig, exportSummaryPDF, API_BASE} from '../api/api';
 import chroma from 'chroma-js';
 import Plotly from 'plotly.js-dist-min';
 
@@ -120,7 +120,7 @@ const loadCSV = async (compoundId, type, tag, adduct, workingDir) => {
     adduct: safeAdduct,
   });
   try {
-    const res = await axios.get(`http://localhost:5000/get_csv?${params}`);
+    const res = await axios.get(`${API_BASE}/get_csv?${params}`);
     return new Promise((resolve) => {
       Papa.parse(res.data, {
         header: true,
@@ -136,7 +136,7 @@ const loadCSV = async (compoundId, type, tag, adduct, workingDir) => {
 const loadComprehensiveTable = async (workingDir) => {
   const params = new URLSearchParams({ working_directory: workingDir });
   try {
-    const res = await axios.get('http://localhost:5000/load_comprehensive_table', { params });
+    const res = await axios.get(`${API_BASE}/load_comprehensive_table`, { params });
     return res.data;
   } catch {
     return [];

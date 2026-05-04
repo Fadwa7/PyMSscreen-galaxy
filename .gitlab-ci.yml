@@ -1,0 +1,21 @@
+stages:
+  - test
+
+backend_smoke_tests:
+  stage: test
+  image: python:3.11-slim
+  before_script:
+    - cd backend
+    - pip install --upgrade pip
+    - pip install -r requirements.txt
+  script:
+    - pytest -q tests
+
+frontend_build:
+  stage: test
+  image: node:20-bullseye
+  before_script:
+    - cd frontend
+    - npm ci
+  script:
+    - npm run build

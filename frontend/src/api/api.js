@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5000';
+export const API_BASE =
+  process.env.REACT_APP_API_BASE || 'http://localhost:8080';
 
 export const saveState = (state) => {
   return axios.post(`${API_BASE}/save_state`, state);

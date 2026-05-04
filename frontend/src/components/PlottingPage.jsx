@@ -51,7 +51,7 @@ import { useAppState } from '../context/AppStateContext';
 import CompoundPlot, { findTopPeaks, movingAverage } from './CompoundPlot';
 import Papa from 'papaparse';
 import { exportCombinedPlot } from './PlotExporter';
-import { exportSummaryPDF, saveQAFlags, loadExtractionConfig } from '../api/api';
+import { exportSummaryPDF, saveQAFlags, loadExtractionConfig, API_BASE} from '../api/api';
 //import { saveQAFlags } from '../api/api';
 import { useNavigate } from 'react-router-dom';
 
@@ -281,7 +281,7 @@ const PlottingPage = () => {
   useEffect(() => {
     if (!appState?.working_directory) return;
     axios
-      .get('http://localhost:5000/load_comprehensive_table', {
+      .get(`${API_BASE}/load_comprehensive_table`, {
         params: { working_directory: appState.working_directory },
       })
       .then((res) => {
@@ -293,7 +293,7 @@ const PlottingPage = () => {
       .catch(console.error);
 
       // Fetch summary table
-    axios.get('http://localhost:5000/load_summary_table', {
+    axios.get(`${API_BASE}/load_summary_table`, {
        params: { working_directory: appState.working_directory },
      })
      .then(res => {
@@ -453,7 +453,7 @@ const handleExportPeakList = async () => {
     const tolerance = toNumber(retTimeShiftTol);
 
     // 1) Load EIC and find the top peak RT using the same logic as CompoundPlot
-    const eicRes = await axios.get('http://localhost:5000/get_csv', {
+    const eicRes = await axios.get(`${API_BASE}/get_csv`, {
       params: { working_directory: appState.working_directory, compound_id: ID, tag, adduct, type: 'EIC' }
     });
     const eicData = await new Promise((resolve) => {
@@ -483,7 +483,7 @@ const handleExportPeakList = async () => {
     const apexRT = topPeaks[0].rt; // most intense real peak (same as CompoundPlot i===0)
 
     // 2) Load MS2 CSV
-    const ms2Res = await axios.get('http://localhost:5000/get_csv', {
+    const ms2Res = await axios.get(`${API_BASE}/get_csv`, {
       params: { working_directory: appState.working_directory, compound_id: ID, tag, adduct, type: 'MS2' }
     });
     const ms2Data = await new Promise((resolve) => {
@@ -553,7 +553,7 @@ const handleDownloadMspFile = async () => {
     console.log('MS2 RT:', ms2Rt);  // Log MS2 RT value
 
     // Make the API call
-    const res = await axios.get('http://localhost:5000/get_csv', {
+    const res = await axios.get(`${API_BASE}/get_csv`, {
       params: {
         working_directory: appState.working_directory,
         compound_id: ID,

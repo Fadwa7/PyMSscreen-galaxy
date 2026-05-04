@@ -122,7 +122,8 @@ function AdductPicker({
             position: 'absolute',
             top: '110%',
             zIndex: 20,
-            minWidth: 420,
+            width: "min(420px, 85vw)",
+            boxSizing: "border-box",
             border: `1px solid ${theme.border}`,
             borderRadius: 8,
             padding: 12,
@@ -131,7 +132,7 @@ function AdductPicker({
             boxShadow: '0 8px 24px rgba(0,0,0,0.12)'
           }}
         >
-          <div style={{ display: 'flex', gap: 24 }}>
+          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
             <section style={{ flex: 1, minWidth: 200 }}>
               <h4 style={{ margin: '4px 0 8px' }}>Positive</h4>
               <div style={{ maxHeight: 240, overflow: 'auto', paddingRight: 4 }}>
@@ -437,7 +438,8 @@ useEffect(() => {
         boxShadow: "0 6px 12px rgba(0, 0, 0, 0.15)",
         border: `2px solid ${theme.border}`,
         maxWidth: "90%",
-        width: "fit-content",
+        width: "min(900px, 92vw)",
+        boxSizing: "border-box",
       }}
     >
       <h2>Data Configuration</h2>
@@ -457,7 +459,7 @@ useEffect(() => {
           </summary>
           <ol style={{ paddingLeft: "20px", marginTop: "10px" }}>
             <li>
-              Set the <strong>Working Directory</strong>… 
+              The <strong>Working Directory</strong> is set to <code>/app/uploads</code> by default. This directory is mapped to a folder on your local machine through Docker, so all uploaded files and generated outputs are saved and persist outside the container.  
             </li>
             <li>Upload the <strong>Compound CSV</strong>…</li>
             <li>Upload one or more <strong>mzML Files</strong>.</li>
@@ -469,61 +471,89 @@ useEffect(() => {
         </details>
       </div>
 
-      <label>Working Directory:</label>
-      <input
-        type="text"
-        value="/app/uploads/"
-        disabled
-        style={{
-          width: "100%",
-          backgroundColor: theme.inputBg,
-          color: theme.inputText,
-          border: `1px solid ${theme.border}`,
-          borderRadius: 6,
-        }}
-      />
+      <div style={{ display: "grid", gap: 16 }}>
+        <div>
+          <label style={{ display: "block", marginBottom: 6 }}>
+            Working Directory:
+          </label>
+          <input
+            type="text"
+            value="/app/uploads/"
+            disabled
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              padding: "8px 10px",
+              backgroundColor: theme.inputDisabledBg || theme.panelLite,  
+              color: theme.inputDisabledText || theme.text,  
+              opacity: 0.7,               
+              cursor: "not-allowed",       
+              border: `1px solid ${theme.border}`,
+              borderRadius: 6,
+            }}
+          />
+        </div>
 
-      <label>Compound CSV:</label>
-      <input
-        type="file"
-        accept=".csv"
-        onChange={(e) => setCompoundCSV(e.target.files[0])}
-        style={{
-          backgroundColor: theme.panelLite,
-          color: theme.text,
-          border: `1px solid ${theme.border}`,
-          borderRadius: 6,
-        }}
-      />
+      <div>
+        <label style={{ display: "block", marginBottom: 6 }}>
+          Compound CSV:
+        </label>
+        <input
+          type="file"
+          accept=".csv"
+          onChange={(e) => setCompoundCSV(e.target.files[0])}
+          style={{
+            width: "100%",
+            boxSizing: "border-box",
+            padding: "8px",
+            backgroundColor: theme.panelLite,
+            color: theme.text,
+            border: `1px solid ${theme.border}`,
+            borderRadius: 6,
+          }}
+        />
+      </div>
 
-      <label>mzML Files:</label>
-      <input
-        type="file"
-        accept=".mzML"
-        multiple
-        onChange={(e) => setMzmlFiles([...e.target.files])}
-        style={{
-          backgroundColor: theme.panelLite,
-          color: theme.text,
-          border: `1px solid ${theme.border}`,
-          borderRadius: 6,
-        }}
-      />
+      <div>
+        <label style={{ display: "block", marginBottom: 6 }}>
+          mzML Files:
+        </label>
+        <input
+          type="file"
+          accept=".mzML"
+          multiple
+          onChange={(e) => setMzmlFiles([...e.target.files])}
+          style={{
+            width: "100%",
+            boxSizing: "border-box",
+            padding: "8px",
+            backgroundColor: theme.panelLite,
+            color: theme.text,
+            border: `1px solid ${theme.border}`,
+            borderRadius: 6,
+          }}
+        />
+      </div>
 
-      <AdductPicker theme={theme} value={globalAdducts} onChange={setGlobalAdducts} />
+      <div>
+        <label style={{ display: "block", marginBottom: 6 }}>
+          Adducts:
+        </label>
+        <AdductPicker theme={theme} value={globalAdducts} onChange={setGlobalAdducts} />
+      </div>
     </div>
 
     {/* TABLE BLOCK */}
-    <table style={{ width: "90%", margin: "auto", borderCollapse: "collapse" }}>
+    <table style={{ width: "90%", margin: "20px auto", tableLayout: "fixed", borderCollapse: "separate", borderSpacing: "0 10px", backgroundColor: theme.panelLite}}>
       <thead>
         <tr style={{ backgroundColor: theme.bg, color: theme.text }}>
-          <th style={{ border: `1px solid ${theme.border}`, padding: "8px" }}>
+          <th style={{ width: "50%", border: `1px solid ${theme.border}`, padding: "12px 14px" }}>
             File Name
           </th>
-          <th style={{ border: `1px solid ${theme.border}`, padding: "8px" }}>
+          <th style={{ width: "30%", border: `1px solid ${theme.border}`, padding: "12px 14px" }}>
             Tag
           </th>
-          <th style={{ border: `1px solid ${theme.border}`, padding: "8px" }}>
+          <th style={{  width: "20%", border: `1px solid ${theme.border}`, padding: "12px 14px" }}>
             Actions
           </th>
         </tr>
@@ -543,16 +573,30 @@ useEffect(() => {
               setMzmlFiles(updatedFiles);
             }}
             style={{
-              border: `1px solid ${theme.border}`,
-              padding: "8px",
-              cursor: "move",
+              cursor: "move"
             }}
           >
-            <td style={{ border: `1px solid ${theme.border}`, padding: "8px" }}>
-              {file.name}
+            <td style={{ padding: "12px 14px" }}>
+              <div
+                title={file.name}
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  padding: "12px 14px",
+                  backgroundColor: theme.inputBg,
+                  color: theme.inputText,
+                  border: `1px solid ${theme.border}`,
+                  borderRadius: 6,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {file.name}
+              </div>
             </td>
 
-            <td style={{ border: `1px solid ${theme.border}`, padding: "8px" }}>
+            <td style={{ padding: "12px 14px"}}>
               <input
                 type="text"
                 value={tags[file.name] || ""}
@@ -561,7 +605,8 @@ useEffect(() => {
                 }
                 style={{
                   width: "100%",
-                  padding: "5px",
+                  boxSizing: "border-box",
+                  padding: "12px 14px",
                   backgroundColor: theme.inputBg,
                   color: theme.inputText,
                   border: `1px solid ${theme.border}`,
@@ -570,7 +615,7 @@ useEffect(() => {
               />
             </td>
 
-            <td style={{ border: `1px solid ${theme.border}`, padding: "8px" }}>
+            <td style={{padding: "12px 14px" }}>
               <button
                 onClick={() => handleDeleteRow(file.name)}
                 style={{
@@ -666,9 +711,10 @@ useEffect(() => {
       </button>
     </div>
 
-  </div> // END WRAPPER
+  </div>
+    {/* END WRAPPER */}
+  </div>
 );
-
 };
 
 export default LandingPage;

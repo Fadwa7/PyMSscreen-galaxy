@@ -35,6 +35,7 @@ pyparsing
 PySocks
 python-dateutil
 pytz
+pytest
 PyYAML
 rdkit
 requests

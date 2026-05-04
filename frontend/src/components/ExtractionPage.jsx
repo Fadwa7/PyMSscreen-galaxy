@@ -35,7 +35,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAppState } from '../context/AppStateContext';
-import { saveExtractConfig, extractData, prescreenData } from '../api/api';
+import { saveExtractConfig, extractData, prescreenData, API_BASE } from '../api/api';
 import { useNavigate } from 'react-router-dom';
 import RibbonHeader from "../components/RibbonHeader";
 
@@ -220,7 +220,7 @@ export default function ExtractionPage() {
 
   try {
     // Step 1 — Start background job
-    const res = await fetch('http://localhost:5000/start_extract_prescreen', {
+    const res = await fetch(`${API_BASE}/start_extract_prescreen`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ working_directory: appState.working_directory }),
@@ -239,7 +239,7 @@ export default function ExtractionPage() {
     const poll = setInterval(async () => {
       try {
         const r = await fetch(
-          `http://localhost:5000/job_status?working_directory=${encodeURIComponent(
+          `${API_BASE}/job_status?working_directory=${encodeURIComponent(
             appState.working_directory
           )}&job_id=${jobId}`
         );
@@ -359,11 +359,11 @@ export default function ExtractionPage() {
       <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', maxWidth: '90%', margin: 'auto' }}>
         <div style={{ padding: '20px', backgroundColor: theme.panel, color: theme.text, borderRadius: '12px', boxShadow: '0 6px 12px rgba(0, 0, 0, 0.15)', border: `2px solid ${theme.border}`, flex: 1 }}>
           <h2>Spectral Extraction Parameters</h2>
-          <label>MS1 Coarse Error:</label>
+          <label>MS1 Coarse Error (Da):</label>
           <input type="number" value={ms1CoarseError} onChange={e => setMs1CoarseError(e.target.value)} style={{ width: '100%', backgroundColor: theme.panelLite, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 6 }} />
-          <label>MS1 Fine Error:</label>
+          <label>MS1 Fine Error (ppm):</label>
           <input type="number" value={ms1FineError} onChange={e => setMs1FineError(e.target.value)} style={{ width: '100%', backgroundColor: theme.panelLite, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 6 }} />
-          <label>MS1 EIC Window:</label>
+          <label>MS1 EIC Window (Da):</label>
           <input type="number" value={ms1EicWindow} onChange={e => setMs1EicWindow(e.target.value)} style={{ width: '100%', backgroundColor: theme.panelLite, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 6 }} />
           <label>Retention Time Window (min):</label>
           <input type="number" value={retentionTimeWindow} onChange={e => setRetentionTimeWindow(e.target.value)} style={{ width: '100%', backgroundColor: theme.panelLite, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 6 }} />
@@ -371,9 +371,9 @@ export default function ExtractionPage() {
 
         <div style={{ padding: '20px', backgroundColor: theme.panel, color: theme.text, borderRadius: '12px', boxShadow: '0 6px 12px rgba(0, 0, 0, 0.15)', border: `2px solid ${theme.border}`, flex: 1 }}>
           <h2>Pre-screening Parameters</h2>
-          <label>MS1 Intensity Threshold:</label>
+          <label>MS1 Intensity Threshold (MS1):</label>
           <input type="number" value={ms1IntensityThreshold} onChange={e => setMs1IntensityThreshold(e.target.value)} style={{ width: '100%', backgroundColor: theme.panelLite, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 6 }} />
-          <label>MS2 Intensity Threshold:</label>
+          <label>MS2 Intensity Threshold (MS2):</label>
           <input type="number" value={ms2IntensityThreshold} onChange={e => setMs2IntensityThreshold(e.target.value)} style={{ width: '100%', backgroundColor: theme.panelLite, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 6 }} />
           <label>MS1 Signal-to-Noise Ratio:</label>
           <input type="number" value={ms1SnRatio} onChange={e => setMs1SnRatio(e.target.value)} style={{ width: '100%', backgroundColor: theme.panelLite, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 6 }} />
