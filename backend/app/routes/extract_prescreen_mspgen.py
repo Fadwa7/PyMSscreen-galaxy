@@ -3,13 +3,24 @@ import json
 import yaml
 import pandas as pd
 import multiprocessing as mp
-
-from pyopenms import MSExperiment, MzMLFile
 from rdkit import Chem
 from rdkit.Chem.inchi import MolToInchiKey
 from flask import request, jsonify
 #from .web_app import app
 from app.jobs.job_store import update_job
+
+def load_pyopenms():
+    """
+    Lazy-load pyOpenMS so importing web_app does not fail during smoke tests.
+    """
+    try:
+        from pyopenms import MSExperiment, MzMLFile
+        return MSExperiment, MzMLFile
+    except ImportError as exc:
+        raise RuntimeError(
+            "pyOpenMS could not be loaded. Missing native system libraries, "
+            "for example libglib2.0-0."
+        ) from exc
 
 def build_feature_base(ID, adduct, tag):
     if pd.isna(adduct):
@@ -31,7 +42,7 @@ def _extract_data_impl(working_dir, job_id=None) -> dict:
     try:
         import os, json, yaml
         import pandas as pd
-        from pyopenms import MSExperiment, MzMLFile
+        MSExperiment, MzMLFile = load_pyopenms()
 
         config_path   = os.path.join(working_dir, "extract_config.yaml")
         state_path    = os.path.join(working_dir, "state.json")
