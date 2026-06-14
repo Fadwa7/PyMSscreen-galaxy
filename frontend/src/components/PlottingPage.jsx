@@ -48,11 +48,10 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Select from 'react-select';
 import axios from 'axios';
 import { useAppState } from '../context/AppStateContext';
-import CompoundPlot, { findTopPeaks, movingAverage } from './CompoundPlot';
+import CompoundPlot, { findTopPeaks } from './CompoundPlot';
 import Papa from 'papaparse';
 import { exportCombinedPlot } from './PlotExporter';
 import { exportSummaryPDF, saveQAFlags, loadExtractionConfig, API_BASE} from '../api/api';
-//import { saveQAFlags } from '../api/api';
 import { useNavigate } from 'react-router-dom';
 
 // --- dark mode support (inline, no CSS files) ---
@@ -116,44 +115,6 @@ const makeTheme = (isDark) =>
         btnGradTo: '#bfe1f2',
         accentText: '#1a1a1a'
       };
-
-const buttonStyle = (theme, opts = {}) => {
-  const {
-    variant = 'primary',     // 'primary' | 'warning' | 'neutral'
-    disabled = false,
-    full = false,            // full width
-    size = 'md',             // 'sm' | 'md' | 'lg'
-  } = opts;
-
-  const sizes = {
-    sm: { padding: '6px 10px', fontSize: 12, borderRadius: 6 },
-    md: { padding: '8px 12px', fontSize: 13, borderRadius: 8 },
-    lg: { padding: '12px 16px', fontSize: 16, borderRadius: 10 },
-  };
-
-  let bg;
-  if (variant === 'warning') {
-    bg = 'linear-gradient(to right, #f6d365, #fda085)';
-  } else if (variant === 'neutral') {
-    bg = `linear-gradient(to bottom, ${theme.panelLite}, ${theme.panel})`;
-  } else {
-    // primary
-    bg = `linear-gradient(to bottom, ${theme.btnGradFrom}, ${theme.btnGradTo})`;
-  }
-
-  return {
-    ...sizes[size],
-    width: full ? '100%' : undefined,
-    fontWeight: 700,
-    background: bg,
-    color: theme.accentText,
-    border: `1px solid ${theme.border}`,
-    boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    opacity: disabled ? 0.5 : 1,
-    transition: 'filter .15s ease',
-  };
-};
 
 // Clear checkbox appearance: bigger + theme color
 const checkboxStyle = {
@@ -718,7 +679,7 @@ const handleDownloadMspFile = async () => {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
-    } catch (err) {
+    } catch {
       alert("Something went wrong while exporting the summary PDF.");
     }
   };

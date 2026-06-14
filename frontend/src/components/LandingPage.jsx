@@ -194,6 +194,11 @@ const LandingPage = () => {
   const theme = makeTheme(isDark);
   const [globalAdducts, setGlobalAdducts] = useState({ positive: [], negative: [] });
   const [isGenerating, setIsGenerating] = useState(false);
+  const navigate = useNavigate();
+  const [workingDirectory, setWorkingDirectory] = useState("/app/uploads/");
+  const [compoundCSV, setCompoundCSV] = useState(null);
+  const [mzmlFiles, setMzmlFiles] = useState([]);
+  const [tags, setTags] = useState({});
 
   useEffect(() => {
   if (appState.working_directory && mzmlFiles.length === 0) {
@@ -203,48 +208,15 @@ const LandingPage = () => {
     setMzmlFiles(files);
 
     const loadedTags = {};
-    const loadedAdducts = {};
     appState.mzml_files.forEach(f => {
       const fname = f.file.split('/').pop();
       loadedTags[fname] = f.tag;
-      loadedAdducts[fname] = f.adduct;
     });
 
     setTags(loadedTags);
-    setAdductSelections(loadedAdducts);
   }
-}, [appState]);
+}, [appState, mzmlFiles.length]);
 
-
-  const navigate = useNavigate();
-  const [workingDirectory, setWorkingDirectory] = useState("/app/uploads/");
-  const [compoundCSV, setCompoundCSV] = useState(null);
-  const [mzmlFiles, setMzmlFiles] = useState([]);
-  const [tags, setTags] = useState({});
-  const [adductSelections, setAdductSelections] = useState({});
-
-  const adducts = [
-    '[M+H]+', '[M+Na]+', '[M+K]+', '[M-H]-', '[M+NH4]+',
-    '[M+CH3OH+H]+', '[M+ACN+H]+', '[M+ACN+Na]+', '[M+2ACN+H]+',
-    '[M+Cl]-', '[M+HCOO]-', '[M+CH3COO]-'
-  ];
-
-  const handleSetWorkingDirectory = () => {
-    const compoundName = compoundCSV?.name || '';
-    const mzmlData = mzmlFiles.map(file => ({
-      file: file.name,
-      tag: tags[file.name] || '',
-      adduct: adductSelections[file.name] || '[M+H]+'
-    }));
-
-    updateAppState({
-      working_directory: workingDirectory,
-      compound_csv: compoundName,
-      mzml_files: mzmlData
-    });
-
-    alert("Working directory and files stored in context.");
-  };
 
 const handleSaveState = async () => {
   // 1) Build mzML entries WITHOUT per-file adducts
@@ -295,12 +267,10 @@ const handleSaveState = async () => {
       data.mzml_files.forEach(f => {
         const fname = f.file.split('/').pop();
         loadedTags[fname] = f.tag;
-        loadedAdducts[fname] = f.adduct;
       });
 
       setTags(loadedTags);
-      setAdductSelections(loadedAdducts);
-
+      
       alert('State loaded!');
     } catch (err) {
       console.error("Load failed:", err);
@@ -334,11 +304,7 @@ const handleSaveState = async () => {
     delete updated[fileName];
     return updated;
   });
-  setAdductSelections(prev => {
-    const updated = { ...prev };
-    delete updated[fileName];
-    return updated;
-  });
+  
 };
  
   // Inject keyframes for underline animation once
@@ -478,7 +444,7 @@ useEffect(() => {
           </label>
           <input
             type="text"
-            value="/app/uploads/"
+            value={workingDirectory}
             disabled
             style={{
               width: "100%",

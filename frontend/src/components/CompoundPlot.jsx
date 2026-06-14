@@ -50,7 +50,7 @@ import Plot from 'react-plotly.js';
 import Papa from 'papaparse';
 import axios from 'axios';
 import { useAppState } from '../context/AppStateContext';
-import { loadExtractionConfig, saveExtractConfig, exportSummaryPDF, API_BASE} from '../api/api';
+import { loadExtractionConfig, API_BASE} from '../api/api';
 import chroma from 'chroma-js';
 import Plotly from 'plotly.js-dist-min';
 
@@ -106,8 +106,6 @@ const parsePeakList = (peakStr) => {
     return { x: mz, y: intensity };
   }).filter(p => !isNaN(p.x) && !isNaN(p.y));
 };
-
-const encodeParam = (value) => encodeURIComponent(value);
 
 const loadCSV = async (compoundId, type, tag, adduct, workingDir) => {
   const safeAdduct =
@@ -310,25 +308,7 @@ const getTagDash   = (idx) => TAG_DASHES[idx % TAG_DASHES.length];
 
 
 const CompoundPlot = ({ compoundGroup, onExportReady, theme }) => {
-  const handleExportSummary = async () => {
-    console.log("Calling exportSummaryPDF with:", compoundGroup, appState.working_directory);
-    try {
-      const blob = await exportSummaryPDF(compoundGroup, appState.working_directory);
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", "summary_report.pdf");
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error("Export error:", err);
-      alert("Failed to export PDF.");
-    }
-  };
-
-
+  
   const [useRelative, setUseRelative] = useState(true);
   const [fragmentsGreyscale, setFragmentsGreyscale] = useState(false);
   const [eicFillEnabled, setEicFillEnabled] = useState(false);
@@ -450,7 +430,7 @@ const exportFilename = useMemo(() => {
         const { ID, tag, adduct } = compound;
         const color = getTagColor(tag, uniqueTags);
         const tagIdx = uniqueTags.indexOf(tag);
-        const dash = 'solid';
+        const dash = publicationMode ? getTagDash(tagIdx) : 'solid';
         const markerSymbol = publicationMode ? getTagMarker(tagIdx) : 'x';
         const compoundId = ID;
 
@@ -461,7 +441,6 @@ const exportFilename = useMemo(() => {
         if (ms1Data.length) {
           const rts = ms1Data.map((row) => parseFloat(row.rt));
           const intensities = ms1Data.map((row) => parseFloat(row.intensity));
-          const eicSmooth = movingAverage(intensities, 7);
           maxMS1Y = Math.max(maxMS1Y, ...intensities);
 
           const topPeaks = findTopPeaks(rts, intensities, {

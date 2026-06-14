@@ -35,7 +35,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAppState } from '../context/AppStateContext';
-import { saveExtractConfig, extractData, prescreenData, API_BASE } from '../api/api';
+import { saveExtractConfig, API_BASE } from '../api/api';
 import { useNavigate } from 'react-router-dom';
 import RibbonHeader from "../components/RibbonHeader";
 
@@ -184,9 +184,9 @@ export default function ExtractionPage() {
     };
 
     try {
-      const res = await saveExtractConfig(config);
+      await saveExtractConfig(config);
       alert("Settings saved to extract_config.yaml!");
-    } catch (err) {
+    } catch {
       alert("Failed to save extract_config.yaml");
     }
   };
@@ -344,7 +344,7 @@ export default function ExtractionPage() {
     </div>
 
       <div style={{ padding: '20px', textAlign: 'center', maxWidth: '90%', margin: 'auto' }}>
-        <details style={{ background: theme.panelLite, padding: '10px', borderRadius: '8px', border: `1px solid solid ${theme.border}`, color: theme.text }}>
+        <details style={{ background: theme.panelLite, padding: '10px', borderRadius: '8px', border: `1px solid ${theme.border}`, color: theme.text }}>
           <summary style={{ cursor: 'pointer', fontWeight: 'bold', color: theme.text }}>ℹ️ Extraction & Prescreening Instructions</summary>
           <ol style={{ paddingLeft: '20px', marginTop: '10px', textAlign: 'left' }}>
             <li>Default parameters for <strong>spectral extraction</strong> and <strong>prescreening</strong> are shown under their respective sections below.</li>

@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 export const API_BASE =
-  process.env.REACT_APP_API_BASE || 'http://localhost:8080';
+  import.meta.env.VITE_API_BASE || 'http://localhost:8080';
 
 export const saveState = (state) => {
   return axios.post(`${API_BASE}/save_state`, state);
@@ -31,43 +31,6 @@ export const loadExtractionConfig = async (workingDir) => {
   } catch {
     return 0.5;
   }
-};
-
-// kick off background extract+prescreen; backend returns { job_id }
-export const startExtractPrescreen = (working_directory) => {
-  return axios.post(`${API_BASE}/start_extract_prescreen`, { working_directory });
-};
-
-// poll job status; backend returns { state, progress, message, done, error }
-export const getJobStatus = (job_id) => {
-  return axios.get(`${API_BASE}/job_status`, { params: { job_id } });
-};
-
-// (optional) cancel a running job
-export const cancelJob = (job_id) => {
-  return axios.post(`${API_BASE}/cancel_job`, { job_id });
-};
-
-export const extractData = (payload) => {
-  return axios.post(`${API_BASE}/extract_data`, payload, {
-    headers: {
-      'Content-Type': 'application/json',
-    }
-  });
-};
-
-export const prescreenData = (payload) => {
-  return axios.post(`${API_BASE}/prescreen_data`, payload, {
-    headers: {
-      'Content-Type': 'application/json',
-    }
-  });
-};
-
-export const loadComprehensiveTable = async (workingDirectory) => {
-  return axios.get(`${API_BASE}/load_comprehensive_table`, {
-    params: { working_directory: workingDirectory }
-  });
 };
 
 export const exportSummaryPDF = async (compounds, working_directory) => {
