@@ -5,9 +5,9 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      // react-select v5 ESM build has unresolved peer deps (@babel/runtime,
-      // @emotion/react) that break Rollup. The CJS build bundles them internally.
-      'react-select': 'react-select/dist/react-select.cjs.dev.js',
+      // react-select v5 ESM build has unresolved peer deps that break Rollup.
+      // Point to the CJS entry which bundles all dependencies internally.
+      'react-select': 'react-select/dist/react-select.cjs.js',
     },
   },
   build: {
