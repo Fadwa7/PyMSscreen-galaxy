@@ -314,6 +314,7 @@ const PlottingPage = () => {
    
     setCurrentIndex(newIndex);
      selectedIdRef.current = result[newIndex]?.id?.toString() || null;
+     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compounds, selectedTags, selectedAdducts]);
 
   /**
@@ -351,6 +352,7 @@ const PlottingPage = () => {
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'ArrowLeft') handlePrev();
     else if (e.key === 'ArrowRight') handleNext();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compoundOptions]);
 
   useEffect(() => {

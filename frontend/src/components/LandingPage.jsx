@@ -263,7 +263,6 @@ const handleSaveState = async () => {
       setMzmlFiles(files);
 
       const loadedTags = {};
-      const loadedAdducts = {};
       data.mzml_files.forEach(f => {
         const fname = f.file.split('/').pop();
         loadedTags[fname] = f.tag;

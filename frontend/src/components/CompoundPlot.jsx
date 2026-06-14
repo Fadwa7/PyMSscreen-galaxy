@@ -612,6 +612,7 @@ const exportFilename = useMemo(() => {
     };
 
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compoundGroup, appState, useRelative, fragmentsGreyscale,eicFillEnabled, publicationMode, onExportReady]);
 
 
