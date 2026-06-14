@@ -965,7 +965,6 @@ useEffect(() => {
       style={{
         padding: 8, marginTop: 10, borderRadius: 6,
         background: `linear-gradient(to bottom, ${theme.btnGradFrom}, ${theme.btnGradTo})`,
-        color: theme.accentText,
         border: `1px solid ${theme.border}`, color: theme.text, fontWeight: 'bold', cursor: 'pointer', width: '100%'
       }}
     >
