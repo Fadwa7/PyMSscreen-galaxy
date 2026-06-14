@@ -93,7 +93,21 @@ docker-compose up
 This will launch:
 
 - Frontend: http://localhost:3000
-- Backend: http://localhost:5000
+- Backend: http://localhost:8080
+
+The frontend connects to the backend using the environment variable `VITE_API_BASE`, configured in frontend/.env. By default this is set to `http://localhost:8080`, matching the host port mapped in `docker-compose.yml`. If you need to change the backend URL, copy `frontend/.env.example` to `frontend/.env` and update the value:
+
+```bash
+VITE_API_BASE=http://your-backend-url
+```
+Then rebuild the frontend container:
+
+```bash
+docker-compose build frontend
+docker-compose up
+```
+
+If no `.env` file is present, the frontend falls back to `http://localhost:8080` automatically.
 
 ## Example Workflow (Use Case 1 from Manuscript)
 
