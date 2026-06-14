@@ -120,11 +120,11 @@ If no `.env` file is present, the frontend falls back to `http://localhost:8080`
    - One or more `.mzML` files
 6. **Tags** (Manual Input): Each mzML file requires a tag to be entered manually in the interface.
    - Tags are user-defined (e.g., WT_POS, KO_NEG, STD)
-   -  They are used for identifying samples, grouping and interpretation, output naming
+   - They are used for identifying samples, grouping and interpretation, output naming
+   - Tags must be non-empty and must not contain spaces, as they are used directly in output filenames and sample matching. 
 
       **Note:**
        - Tags are not automatically extracted from filenames
-       - No strict validation is applied (free text input)
        - Users should use consistent and meaningful tags, especially for larger datasets.
 7. **Adduct Selection:** Selected adduct(s): [e.g., [M+H]+, [M-H]- depending on your example]
   - If you are using SMILES or neutral mass (mz) as input, you must select an adduct from the dropdown menu. The selected adduct is used to calculate the expected m/z for extraction.

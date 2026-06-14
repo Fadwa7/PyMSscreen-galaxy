@@ -219,6 +219,15 @@ const LandingPage = () => {
 
 
 const handleSaveState = async () => {
+
+  // 0) Validate tags first
+
+  const invalidTags = mzmlFiles.filter(f => !tags[f.name] || tags[f.name].trim() === '');
+  if (invalidTags.length > 0) {
+    alert('Please enter a tag for every mzML file before saving.');
+    return;
+  }
+
   // 1) Build mzML entries WITHOUT per-file adducts
   const mzmlData = mzmlFiles.map(file => ({
     file: file.name,
@@ -565,9 +574,10 @@ useEffect(() => {
               <input
                 type="text"
                 value={tags[file.name] || ""}
-                onChange={(e) =>
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\s/g, '');
                   setTags((prev) => ({ ...prev, [file.name]: e.target.value }))
-                }
+                }}
                 style={{
                   width: "100%",
                   boxSizing: "border-box",
@@ -578,6 +588,9 @@ useEffect(() => {
                   borderRadius: 6,
                 }}
               />
+              <small style={{ color: theme.muted, fontSize: 11 }}>
+                No spaces. Tags are used in output filenames.
+              </small>
             </td>
 
             <td style={{padding: "12px 14px" }}>
