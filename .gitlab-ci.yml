@@ -9,7 +9,12 @@ backend_smoke_tests:
     - pip install --upgrade pip
     - pip install -r requirements.txt
   script:
-    - pytest -q tests
+    - pytest -q tests --junitxml=report.xml
+  artifacts:
+    when: always
+    reports:
+      junit: backend/report.xml
+    expire_in: 1 week
 
 frontend_light_check:
   stage: test
