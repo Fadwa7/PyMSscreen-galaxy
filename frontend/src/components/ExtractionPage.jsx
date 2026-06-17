@@ -199,10 +199,8 @@ export default function ExtractionPage() {
  * @returns {Promise<void>}
  *
  * @workflow
- * 1) Trigger MS1/MS2 extraction (`/extract_data`)
- * 2) Monitor progress using simulated progress updates
- * 3) Trigger prescreening and QA (`/prescreen_data`)
- * 4) Display completion or error status
+ * 1) Trigger MS1/MS2 extraction and prescreening via `/start_extract_prescreen`
+ * 2) Display completion or error status
  *
  * @sideEffects
  * - Generates MS1 EIC and MS2 fragment CSV files

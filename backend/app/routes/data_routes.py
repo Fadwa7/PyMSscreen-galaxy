@@ -98,7 +98,6 @@ def load_comprehensive_table():
     None.
     """
     try:
-        #working_directory = os.path.expanduser(request.args.get("working_directory", "."))
         table_path = os.path.join(BASE_WORKING_DIR, "comprehensive_table.csv")
         print("Requested path:", request.args.get("working_directory"))
         print(" Resolved path:", table_path)
@@ -133,7 +132,6 @@ def load_comprehensive_table():
 @data_bp.route('/load_summary_table', methods=['GET'])
 def load_summary_table():
     try:
-        #working_directory = os.path.expanduser(request.args.get("working_directory", "."))
         table_path = os.path.join(BASE_WORKING_DIR, "summary_table.csv")
 
         print("Looking for:", table_path)
@@ -164,7 +162,6 @@ def load_summary_table():
 @data_bp.route('/save_qa_flags', methods=['POST'])
 def save_qa_flags():
     try:
-        import pandas as pd
         data = request.get_json()
         flags = data.get("flags", {})
         working_directory = os.path.expanduser(data.get("working_directory", "."))
