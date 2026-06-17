@@ -279,63 +279,6 @@ def _prescreen_impl(working_dir, job_id=None) -> dict:
 
 
 
-def _extraction_outputs_exist(working_dir: str) -> bool:
-    spectra_dir = os.path.join(working_dir, "ms2_spectra")
-    if not os.path.isdir(spectra_dir):
-        return False
-    # at least one EIC or MS2 file produced
-    for root, _, files in os.walk(spectra_dir):
-        for fn in files:
-            if fn.endswith("_EIC.csv") or fn.endswith("_MS2.csv"):
-                return True
-    return False
-
-def _prescreen_outputs_exist(working_dir: str) -> bool:
-    return os.path.exists(os.path.join(working_dir, "summary_table.csv"))
-
-def _run_pipeline_background(job_id, working_dir, base_url="http://localhost:5000"):
-    try:
-        update_job(working_dir, job_id, state="running",
-                   started_at=pd.Timestamp.utcnow().isoformat(),
-                   progress=5, message="Starting extraction…")
-
-        # Extraction
-        res1 = _extract_data_impl(working_dir, job_id=job_id)
-        if res1.get("status") != "success":
-            update_job(working_dir, job_id, state="error", progress=0,
-                       message=f"Extraction failed: {res1}", finished_at=pd.Timestamp.utcnow().isoformat())
-            return
-
-        if not _extraction_outputs_exist(working_dir):
-            update_job(working_dir, job_id, state="error", progress=55,
-                       message="Extraction finished but no spectra/EIC files found.",
-                       finished_at=pd.Timestamp.utcnow().isoformat())
-            return
-
-        update_job(working_dir, job_id, progress=60, message="Extraction done. Starting prescreen…")
-
-        # Prescreen
-        res2 = _prescreen_impl(working_dir, job_id=job_id)
-        if res2.get("status") != "success":
-            update_job(working_dir, job_id, state="error", progress=60,
-                       message=f"Prescreen failed: {res2}", finished_at=pd.Timestamp.utcnow().isoformat())
-            return
-
-        if not _prescreen_outputs_exist(working_dir):
-            update_job(working_dir, job_id, state="error", progress=95,
-                       message="Prescreen finished but summary_table.csv not found.",
-                       finished_at=pd.Timestamp.utcnow().isoformat())
-            return
-
-        update_job(working_dir, job_id, state="done", progress=100, message="✅ Completed",
-                   finished_at=pd.Timestamp.utcnow().isoformat())
-
-    except Exception as e:
-        update_job(working_dir, job_id, state="error",
-                   message=f"Unhandled error in background pipeline: {e}",
-                   finished_at=pd.Timestamp.utcnow().isoformat())
-
-
 # ==========================================================
 # FAST PARALLEL MSP GENERATION
 # ==========================================================
@@ -459,7 +402,7 @@ def _extraction_outputs_exist(working_dir: str) -> bool:
 def _prescreen_outputs_exist(working_dir: str) -> bool:
     return os.path.exists(os.path.join(working_dir, "summary_table.csv"))
 
-def _run_pipeline_background(job_id, working_dir, base_url="http://localhost:5000"):
+def _run_pipeline_background(job_id, working_dir):
     try:
         update_job(working_dir, job_id, state="running",
                    started_at=pd.Timestamp.utcnow().isoformat(),

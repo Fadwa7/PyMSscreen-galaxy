@@ -119,16 +119,38 @@ If no `.env` file is present, the frontend falls back to `http://localhost:8080`
    - The compound CSV ( e.g. AA CSV)
    - One or more `.mzML` files
 6. **Tags** (Manual Input): Each mzML file requires a tag to be entered manually in the interface.
-   - Tags are user-defined (e.g., WT_POS, KO_NEG, STD)
+   - Tags are user-defined.
    - They are used for identifying samples, grouping and interpretation, output naming
    - Tags must be non-empty and must not contain spaces, as they are used directly in output filenames and sample matching. 
 
       **Note:**
        - Tags are not automatically extracted from filenames
        - Users should use consistent and meaningful tags, especially for larger datasets.
+
+    Assign a tag to each mzML file as follows:
+
+    | mzML file | Tag |
+    |-----------|-----|
+    | ISB401_AA_KO_NEG_DLD3_1.mzML | KO-|
+    | ISB401_AA_KO_POS_DLD3_1.mzML | KO+ |
+    | ISB401_AA_STD_NEG_METmix_1.mzML | STD- |
+    | ISB401_AA_STD_POS_METmix_1.mzML | STD+ |
+    | ISB401_AA_WT_NEG_FY4_1.mzML | WT- |
+    | ISB401_AA_WT_POS_FY4_1.mzML | WT+ |
+
+    
 7. **Adduct Selection:** Selected adduct(s): [e.g., [M+H]+, [M-H]- depending on your example]
   - If you are using SMILES or neutral mass (mz) as input, you must select an adduct from the dropdown menu. The selected adduct is used to calculate the expected m/z for extraction.
   - If you are screening directly using precursor mass, selecting an adduct is not required. In this case, extraction is performed around the provided precursor m/z value.
+
+  **Adduct Selection:**
+
+   | Polarity | Adducts |
+   |----------|---------|
+   | Positive | [M+H]+ |
+   | Negative | [M-H]- |
+
+
 8. Click **"Save State"**
    - This generates a `state.json` file that captures the current application state, including selected inputs and settings.
 9. Click **"Load State"**
@@ -140,10 +162,29 @@ If no `.env` file is present, the frontend falls back to `http://localhost:8080`
 12. **Extraction** Settings
     - Mass tolerance (MS1 Fine error): [e.g., 5 ppm or specify your value]
     -  Retention time window: [e.g., ±0.5 min]
+
+    **Extraction Parameters (default settings):**
+
+    | Parameter | Value |
+    |-----------|-------|
+    | MS1 coarse error | 0.01 Da |
+    | MS1 fine error | 5 ppm |
+    | MS1 EIC window | 0.01 Da |
+    | Retention time window | 0.5 min |
+
 13. **Prescreening / QC Criteria**
     - Signal-to-noise threshold: 3
     - MS1 intensity threshold: 100000
     - Retention time delay: 0.5 min
+
+     **Prescreening / QC Parameters (default settings):**
+
+    | Parameter | Value |
+    |-----------|-------|
+    | MS1 intensity threshold | 100000 |
+    | MS2 intensity threshold | 2500 |
+    | Signal-to-noise ratio | 3 |
+    | Retention time delay | 0.5 min |
 
       **Notes**
        - These parameters correspond to the example dataset provided via Zenodo.

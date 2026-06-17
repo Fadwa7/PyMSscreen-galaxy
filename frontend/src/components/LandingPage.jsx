@@ -576,7 +576,7 @@ useEffect(() => {
                 value={tags[file.name] || ""}
                 onChange={(e) => {
                   const val = e.target.value.replace(/\s/g, '');
-                  setTags((prev) => ({ ...prev, [file.name]: e.target.value }))
+                  setTags((prev) => ({ ...prev, [file.name]: val  }))
                 }}
                 style={{
                   width: "100%",
