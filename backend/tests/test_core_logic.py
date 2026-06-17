@@ -1,14 +1,13 @@
 """
 test_core_logic.py
 ==================
-Covers the reviewer's requested areas:
+Test covers:
   - CSV parsing (compound table)
   - Adduct / mass logic  (ADDUCT_MASS from table_routes)
   - State & extract_config generation / round-trip
   - job_store helpers
   - build_feature_base filename helper
 
-All tests are pure-Python / pandas / numpy; pyOpenMS is NOT required.
 Run with:  pytest backend/tests/test_core_logic.py -v
 """
 
