@@ -8,7 +8,7 @@ import yaml
 
 from flask import Blueprint, request, jsonify, send_file, current_app
 
-from app.config import BASE_WORKING_DIR
+from app.utils import get_working_dir
 from app.routes.extract_prescreen_mspgen import build_feature_base, generate_msp_library
 
 data_bp = Blueprint("data", __name__)
@@ -90,7 +90,7 @@ def get_csv():
     `{compound_id}_{adduct}_{tag}_{type}` under `<working_directory>/ms2_spectra/`.
     """
     try:
-        working_dir = os.path.expanduser(request.args.get("working_directory"))
+        working_dir = get_working_dir(request.args.get("working_directory"))
         compound_id = request.args.get("compound_id")
         file_type = request.args.get("type")  # 'EIC' or 'MS2'
         
@@ -144,15 +144,16 @@ def load_comprehensive_table():
     None.
     """
     try:
-        table_path = os.path.join(BASE_WORKING_DIR, "comprehensive_table.csv")
+        base_dir = get_working_dir(request.args.get("working_directory"))
+        table_path = os.path.join(base_dir, "comprehensive_table.csv")
         print("Requested path:", request.args.get("working_directory"))
         print(" Resolved path:", table_path)
         print("Looking for:", table_path)
 
 
-        if not os.path.isdir(BASE_WORKING_DIR):
+        if not os.path.isdir(base_dir):
             return jsonify({
-                "error": f"Base directory not found: {BASE_WORKING_DIR}"
+                "error": f"Base directory not found: {base_dir}"
             }), 400
         if not os.path.isfile(table_path):
             return jsonify([]), 200
@@ -178,7 +179,7 @@ def load_comprehensive_table():
 @data_bp.route('/load_summary_table', methods=['GET'])
 def load_summary_table():
     try:
-        table_path = os.path.join(BASE_WORKING_DIR, "summary_table.csv")
+        table_path = os.path.join(get_working_dir(request.args.get("working_directory")), "summary_table.csv")
 
         print("Looking for:", table_path)
 
@@ -210,7 +211,7 @@ def save_qa_flags():
     try:
         data = request.get_json()
         flags = data.get("flags", {})
-        working_directory = os.path.expanduser(data.get("working_directory", "."))
+        working_directory = get_working_dir(data.get("working_directory"))
 
         table_path = os.path.join(working_directory, "summary_table.csv")
         if not os.path.exists(table_path):

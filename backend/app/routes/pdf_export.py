@@ -10,6 +10,7 @@ import os
 import tempfile
 
 from app.routes.extract_prescreen_mspgen import build_feature_base
+from app.utils import get_working_dir
 
 
 def _clean(value):
@@ -39,7 +40,7 @@ def register_pdf_export(app):
     @app.route('/export_summary_pdf', methods=['POST'])
     def export_summary_pdf():
         compound_groups = request.json.get('compound_groups', [])
-        working_dir = os.path.expanduser(request.json.get('working_directory', ''))
+        working_dir = get_working_dir(request.json.get('working_directory'))
 
         if not compound_groups or not working_dir:
             return jsonify({"error": "Missing required data"}), 400

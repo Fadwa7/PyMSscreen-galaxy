@@ -32,14 +32,16 @@ def _row(df, ID):
     return df[df["ID"] == ID].iloc[0]
 
 
-def test_old_key_format_still_works(tmp_path):
+def test_old_key_format_still_works(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.config.BASE_WORKING_DIR", str(tmp_path))
     _summary(tmp_path)
     res, df = _save(tmp_path, {"101_[M+H]+_WT+": {"MS1_Exists": True}})
     assert res["updated_rows"] == 1 and res["not_found"] == []
     assert bool(_row(df, "101")["qa_ms1_exists"]) and bool(_row(df, "101")["qa_pass"])
 
 
-def test_id_with_underscore(tmp_path):
+def test_id_with_underscore(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.config.BASE_WORKING_DIR", str(tmp_path))
     _summary(tmp_path)
     res, df = _save(tmp_path, {"CMP_001_[M+H]+_WT+": {
         "MS1_Exists": True, "ID": "CMP_001", "adduct": "[M+H]+", "tag": "WT+"}})
@@ -48,7 +50,8 @@ def test_id_with_underscore(tmp_path):
     assert not bool(_row(df, "101")["qa_ms1_exists"])          # other rows untouched
 
 
-def test_row_without_adduct(tmp_path):
+def test_row_without_adduct(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.config.BASE_WORKING_DIR", str(tmp_path))
     _summary(tmp_path)
     res, df = _save(tmp_path, {"202_null_WT-": {
         "MS1_Exists": True, "ID": "202", "adduct": None, "tag": "WT-"}})
@@ -56,7 +59,8 @@ def test_row_without_adduct(tmp_path):
     assert bool(_row(df, "202")["qa_ms1_exists"])
 
 
-def test_missing_row_is_reported(tmp_path):
+def test_missing_row_is_reported(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.config.BASE_WORKING_DIR", str(tmp_path))
     _summary(tmp_path)
     res, _ = _save(tmp_path, {"999_[M+H]+_WT+": {
         "MS1_Exists": True, "ID": "999", "adduct": "[M+H]+", "tag": "WT+"}})

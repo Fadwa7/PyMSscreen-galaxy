@@ -41,7 +41,8 @@ def _save(wd, update):
     return r.get_json(), row, msp
 
 
-def test_select_other_peak_with_ms2(tmp_path):
+def test_select_other_peak_with_ms2(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.config.BASE_WORKING_DIR", str(tmp_path))
     _setup(tmp_path)
     res, row, msp = _save(tmp_path, {**FLAGS, **IDS, "MS1_RT": 9.12})
     assert row["ms1_rt"] == 9.12
@@ -51,7 +52,8 @@ def test_select_other_peak_with_ms2(tmp_path):
     assert "RT: 9.12" in msp and "88.0400 200" in msp
 
 
-def test_select_peak_without_ms2(tmp_path):
+def test_select_peak_without_ms2(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.config.BASE_WORKING_DIR", str(tmp_path))
     _setup(tmp_path)
     res, row, msp = _save(tmp_path, {**FLAGS, **IDS, "MS1_RT": 12.0})
     assert row["ms1_rt"] == 12.0
@@ -61,7 +63,8 @@ def test_select_peak_without_ms2(tmp_path):
     assert res["msp_entries"] == 0 and "NAME:" not in msp      # removed from the library
 
 
-def test_no_peak_change_keeps_peak(tmp_path):
+def test_no_peak_change_keeps_peak(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.config.BASE_WORKING_DIR", str(tmp_path))
     _setup(tmp_path)
     res, row, msp = _save(tmp_path, {**FLAGS, **IDS})
     assert row["ms1_rt"] == 6.28 and row["peak_list"] == "70.0652:100"
@@ -69,7 +72,8 @@ def test_no_peak_change_keeps_peak(tmp_path):
     assert res["msp_entries"] == 1 and "RT: 6.28" in msp
 
 
-def test_flag_change_updates_library(tmp_path):
+def test_flag_change_updates_library(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.config.BASE_WORKING_DIR", str(tmp_path))
     _setup(tmp_path)
     _, row, msp = _save(tmp_path, {**FLAGS, **IDS, "MS1_Exists": False})
     assert not bool(row["qa_pass"])

@@ -33,7 +33,8 @@ def _export(wd, compounds):
         return c.post("/export_summary_pdf", json={"working_directory": str(wd), "compound_groups": groups})
 
 
-def test_pdf_export_produces_pdf(tmp_path):
+def test_pdf_export_produces_pdf(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.config.BASE_WORKING_DIR", str(tmp_path))
     _setup(tmp_path)
     r = _export(tmp_path, [
         {"ID": 101, "tag": "WT+", "adduct": "[M+H]+"},

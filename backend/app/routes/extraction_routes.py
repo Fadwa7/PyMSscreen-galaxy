@@ -4,7 +4,7 @@ from multiprocessing import Process
 
 from flask import Blueprint, request, jsonify
 
-from app.utils import resolve_path
+from app.utils import get_working_dir
 from app.jobs.job_store import create_job, load_status
 from app.routes.extract_prescreen_mspgen import _run_pipeline_background
 
@@ -13,7 +13,7 @@ extraction_bp = Blueprint("extraction", __name__)
 @extraction_bp.route("/start_extract_prescreen", methods=["POST"])
 def start_extract_prescreen():
     body = request.get_json(force=True)
-    working_dir = resolve_path(body.get("working_directory", ""))
+    working_dir = get_working_dir(body.get("working_directory"))
 
     if not os.path.isdir(working_dir):
         return jsonify({"error": f"Invalid working directory: {working_dir}"}), 400
@@ -31,7 +31,7 @@ def start_extract_prescreen():
 
 @extraction_bp.route("/job_status", methods=["GET"])
 def job_status():
-    working_dir = resolve_path(request.args.get("working_directory", ""))
+    working_dir = get_working_dir(request.args.get("working_directory"))
     job_id = request.args.get("job_id", "")
     if not working_dir or not job_id:
         return jsonify({"error": "Missing working_directory or job_id", "state": "invalid"}), 400

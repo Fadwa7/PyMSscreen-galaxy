@@ -32,6 +32,34 @@ def resolve_path(p):
     """
     return os.path.expanduser(p)
 
+def get_working_dir(requested=None):
+    """
+    Project folder used by every route.
+
+    pyMSscreen works on one project folder per running container: the host
+    folder UPLOADS_PATH, mounted at BASE_WORKING_DIR (/app/uploads). A folder
+    sent by the frontend is ignored, so all routes read and write the same
+    place and requests cannot reach other locations on the server.
+
+    Parameters
+    ----------
+    requested : str, optional
+        Folder sent by the frontend; only logged if it differs.
+
+    Returns
+    -------
+    str
+        BASE_WORKING_DIR (read at call time, so tests can override it).
+    """
+    from app import config
+    base = config.BASE_WORKING_DIR
+    if requested:
+        req = os.path.abspath(os.path.expanduser(str(requested)))
+        if req != base:
+            print(f"Ignoring requested working directory {requested!r}; using {base}")
+    return base
+
+
 def _parse_json_safely(resp, step_name: str):
     status = getattr(resp, "status_code", None)
     try:

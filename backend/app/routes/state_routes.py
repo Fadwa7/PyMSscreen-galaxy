@@ -3,7 +3,7 @@ import json
 import yaml
 from flask import Blueprint, request, jsonify
 
-from app.utils import resolve_path
+from app.utils import get_working_dir
 
 state_bp = Blueprint("state", __name__)
 
@@ -55,7 +55,7 @@ def save_state():
         print("Save request data:", data)
 
         # -- 1) Working directory
-        working_directory = os.path.expanduser(data.get("working_directory", "."))
+        working_directory = get_working_dir(data.get("working_directory"))
         if not os.path.isdir(working_directory):
             return jsonify({"error": "Invalid working directory"}), 400
         working_directory = os.path.normpath(working_directory)
@@ -150,7 +150,7 @@ def load_state():
     """
     try:
         data = request.get_json()
-        working_directory = os.path.expanduser(data.get("working_directory", "."))
+        working_directory = get_working_dir(data.get("working_directory"))
         state_path = os.path.join(working_directory, "state.json")
 
         if not os.path.exists(state_path):
@@ -208,7 +208,7 @@ def save_extract_config():
     """
     try:
         data = request.get_json()
-        working_directory = resolve_path(data.get("working_directory", "."))
+        working_directory = get_working_dir(data.get("working_directory"))
         print("Saving extraction config to:", working_directory)
 
         if not os.path.isdir(working_directory):
@@ -242,8 +242,8 @@ def save_extract_config():
     
 @state_bp.route('/load_extraction_config', methods=['GET'])
 def load_extraction_config():
-    # Same path resolution as save_extract_config, so "~" paths work too
-    working_dir = resolve_path(request.args.get('working_directory', '.'))
+    # Same project folder as all other routes
+    working_dir = get_working_dir(request.args.get('working_directory'))
     config_path = os.path.join(working_dir, 'extract_config.yaml')
 
     try:
@@ -253,7 +253,7 @@ def load_extraction_config():
         raw = config['prescreen']['ret_time_shift_tol']
         ret_time_shift_tol = float(str(raw).replace('min', '').strip())
         return jsonify({'ret_time_shift_tol': ret_time_shift_tol})
-
+    
     except Exception as e:
         print(f"Error loading extract_config.yaml: {e}")
         return jsonify({'ret_time_shift_tol': 0.5})

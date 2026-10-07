@@ -23,7 +23,8 @@ def _load(client, wd):
     return r.get_json()["ret_time_shift_tol"]
 
 
-def test_returns_value_saved_by_ui(tmp_path):
+def test_returns_value_saved_by_ui(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.config.BASE_WORKING_DIR", str(tmp_path))
     c = _client()
     r = c.post("/save_extract_config",
                json={**SAVE_BODY, "working_directory": str(tmp_path), "retention_time_delay": 0.3})
@@ -31,12 +32,14 @@ def test_returns_value_saved_by_ui(tmp_path):
     assert _load(c, tmp_path) == 0.3
 
 
-def test_plain_number_in_yaml(tmp_path):
+def test_plain_number_in_yaml(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.config.BASE_WORKING_DIR", str(tmp_path))
     (tmp_path / "extract_config.yaml").write_text(yaml.safe_dump({"prescreen": {"ret_time_shift_tol": 0.2}}))
     assert _load(_client(), tmp_path) == 0.2
 
 
-def test_falls_back_to_default(tmp_path):
+def test_falls_back_to_default(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.config.BASE_WORKING_DIR", str(tmp_path))
     c = _client()
     assert _load(c, tmp_path) == 0.5                                   # no config file
     (tmp_path / "extract_config.yaml").write_text("tolerance: {}\n")    # no prescreen section

@@ -9,7 +9,7 @@ from rdkit import Chem
 from rdkit.Chem import Descriptors, rdMolDescriptors
 from rdkit.Chem.inchi import MolToInchiKey
 
-from app.utils import resolve_path, detect_polarity_mzml
+from app.utils import get_working_dir, detect_polarity_mzml
 
 table_bp = Blueprint("table", __name__)
 
@@ -78,7 +78,7 @@ def generate_table():
 
     try:
         body = request.get_json(force=True)
-        working_directory = resolve_path(body.get("workingDirectory", ""))
+        working_directory = get_working_dir(body.get("workingDirectory"))
         print(f"Working directory: {working_directory}")
 
         state_path = os.path.join(working_directory, "state.json")
