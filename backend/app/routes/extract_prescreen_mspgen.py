@@ -2,6 +2,7 @@ import os
 import json
 import shutil
 import yaml
+import numpy as np
 import pandas as pd
 import multiprocessing as mp
 from rdkit import Chem
@@ -56,6 +57,60 @@ def _backup_summary_table(working_dir):
         n += 1
     shutil.copy2(table, backup)
     return backup
+
+
+def moving_average(values, window=5):
+    """
+    Centered moving average; at the edges only existing points are averaged.
+    Python copy of movingAverage() in frontend CompoundPlot.jsx.
+    """
+    values = np.asarray(values, dtype=float)
+    kernel = np.ones(window)
+    return (np.convolve(values, kernel, mode="same")
+            / np.convolve(np.ones_like(values), kernel, mode="same"))
+
+
+def find_top_peaks(rts, intensities, n=3, min_separation=0.15,
+                   prominence_frac=0.05, min_width_points=3):
+    """
+    Top-n MS1 peaks of an EIC trace, as list of dicts {rt, intensity, idx},
+    most intense first. Line-by-line Python copy of findTopPeaks() in
+    frontend CompoundPlot.jsx, so the summary table and the plot always
+    pick the same peaks. Keep both implementations in sync.
+    """
+    rts = np.asarray(rts, dtype=float)
+    ints = np.asarray(intensities, dtype=float)
+    if len(rts) == 0 or len(rts) != len(ints):
+        return []
+    sm = moving_average(ints, 5)
+    max_i = sm.max()
+    if not np.isfinite(max_i) or max_i <= 0:
+        return []
+    min_prom = max_i * prominence_frac
+
+    candidates = []
+    for i in range(1, len(sm) - 1):
+        if sm[i] > sm[i - 1] and sm[i] >= sm[i + 1]:
+            l = i - 1
+            while l > 0 and sm[l] < sm[l + 1]:
+                l -= 1
+            r = i + 1
+            while r < len(sm) - 1 and sm[r] < sm[r - 1]:
+                r += 1
+            if r - l < min_width_points:
+                continue
+            baseline = max(min(sm[l], sm[r]), 1e-12)
+            if sm[i] - baseline >= min_prom:
+                candidates.append({"rt": float(rts[i]), "intensity": float(ints[i]), "idx": i})
+
+    candidates.sort(key=lambda c: -c["intensity"])  # stable, like JS sort
+    picked = []
+    for c in candidates:
+        if all(abs(p["rt"] - c["rt"]) >= min_separation for p in picked):
+            picked.append(c)
+            if len(picked) == n:
+                break
+    return picked
 
 
 def _clean_str(value):
@@ -237,41 +292,24 @@ def _prescreen_impl(working_dir, job_id=None) -> dict:
                 eic_df = pd.read_csv(eic_path)
                 # an all-zero trace has no MS1 signal at all
                 if not eic_df.empty and eic_df["intensity"].max() > 0:
-                    max_int  = eic_df["intensity"].max()
                     mean_int = eic_df["intensity"].mean()
-                     # --- prominence-filtered peak detection (mirrors CompoundPlot.jsx findTopPeaks) ---
-                    intensities = eic_df["intensity"].to_numpy(dtype=float)
-                    rts         = eic_df["rt"].to_numpy(dtype=float)
-
-                    # 1) smooth with a 5-point moving average; at the edges, average only over
-                    #    existing points (same as movingAverage in CompoundPlot.jsx). Zero-padding
-                    #    here created fake peaks at the start/end of the run.
-                    kernel = np.ones(5)
-                    sm = (np.convolve(intensities, kernel, mode='same')
-                          / np.convolve(np.ones_like(intensities), kernel, mode='same'))
-
-                    # 2) find local maxima with minimum width of 3 points
-                    from scipy.signal import find_peaks
-                    peak_idxs, props = find_peaks(sm, width=3)
-                    rt_peak  = None
-                    if len(peak_idxs) > 0:
-                        # 3) filter by prominence: peak must be > 5% of global smoothed max
-                        min_prom = sm.max() * 0.05
-                        prominent = [i for i in peak_idxs if (sm[i] - max(sm[max(0,i-10):i].min() if i>0 else 0,
-                                    sm[i+1:min(len(sm),i+10)].min() if i<len(sm)-1 else 0, 1e-12)) >= min_prom]
-                        if not prominent:
-                            prominent = list(peak_idxs)  # fallback: use all peaks if none pass prominence
-                        # 4) pick the most intense among prominent peaks
-                        best = max(prominent, key=lambda i: intensities[i])
-                        rt_peak = float(rts[best])
+                    # --- MS1 peak: same peak finder as the plot (findTopPeaks) ---
+                    top_peaks = find_top_peaks(eic_df["rt"], eic_df["intensity"])
+                    rt_peak = None
+                    peak_int = None
+                    if top_peaks:
+                        rt_peak  = top_peaks[0]["rt"]
+                        peak_int = top_peaks[0]["intensity"]
                     # no peak detected -> no MS1 peak (no fallback to the raw maximum,
                     # which invented a "peak" at the first scan of empty traces)
                     if rt_peak is not None:
                         summary["qa_ms1_exists"] = True
                         summary["ms1_rt"]   = rt_peak
                         summary["alignment"]= True
-                        if max_int > ms1_thresh: summary["qa_ms1_good_int"] = True
-                        if max_int > mean_int * s2n: summary["qa_ms1_above_noise"] = True
+                        # intensity checks use the chosen peak, not the highest point
+                        # of the whole trace (a one-scan spike could pass otherwise)
+                        if peak_int > ms1_thresh: summary["qa_ms1_good_int"] = True
+                        if peak_int > mean_int * s2n: summary["qa_ms1_above_noise"] = True
 
             if os.path.exists(ms2_path):
                 ms2_df = pd.read_csv(ms2_path)
