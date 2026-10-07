@@ -172,14 +172,35 @@ def save_qa_flags():
 
         df = pd.read_csv(table_path)
 
+        def _clean(value):
+            # missing adduct (precursor m/z rows) -> ""
+            text = "" if value is None else str(value).strip()
+            return "" if text.lower() in {"nan", "null", "none"} else text
+
+        df_adduct = df["adduct"].map(_clean)
+        df_tag = df["tag"].astype(str).str.strip()
+        updated_rows = 0
+        not_found = []
+
         for compound_key, update in flags.items():
-            try:
-                compound_id, adduct, tag = compound_key.split("_", 2)
-            except ValueError:
-                return jsonify({"error": f"Invalid compound key format: {compound_key}"}), 400
+            if "ID" in update and "tag" in update:
+                # new format: ID, adduct and tag sent as separate values
+                compound_id, adduct, tag = update["ID"], update.get("adduct"), update["tag"]
+            else:
+                # old format: "ID_adduct_tag" joined in the key
+                try:
+                    compound_id, adduct, tag = compound_key.split("_", 2)
+                except ValueError:
+                    return jsonify({"error": f"Invalid compound key format: {compound_key}"}), 400
 
             mask = (df["ID"].astype(str) == str(compound_id)) & \
-                   (df["adduct"] == adduct) & (df["tag"] == tag)
+                   (df_adduct == _clean(adduct)) & (df_tag == str(tag).strip())
+
+            if not mask.any():
+                not_found.append(compound_key)
+                print(f" No summary row found for {compound_key}")
+                continue
+            updated_rows += int(mask.sum())
 
             print(f"Updating row for ID={compound_id}, adduct={adduct}, tag={tag}")
             print(" Incoming flags:", update)
@@ -223,7 +244,11 @@ def save_qa_flags():
         df.to_csv(table_path, index=False)
         print(" Save completed.")
 
-        return jsonify({"message": f"QA flags updated in {table_path}"})
+        return jsonify({
+            "message": f"QA flags updated in {table_path}",
+            "updated_rows": updated_rows,
+            "not_found": not_found
+        })
 
     except Exception as e:
         print(f"Error saving flags: {e}")

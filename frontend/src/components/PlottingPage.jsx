@@ -235,7 +235,14 @@ const PlottingPage = () => {
   const handleUpdateQA = () => {
     console.log("📤 Submitting QA flags:", qaFlags);  // still useful here
     saveQAFlags(appState.working_directory, qaFlags)
-      .then(() => alert('✅ QA flags updated'))
+      .then((res) => {
+        const notFound = res?.data?.not_found || [];
+        if (notFound.length) {
+          alert(`⚠️ QA flags not saved for: ${notFound.join(', ')}`);
+        } else {
+          alert('✅ QA flags updated');
+        }
+      })
       .catch(() => alert('❌ Failed to update QA flags'));
   };
 
@@ -379,6 +386,7 @@ const PlottingPage = () => {
           MS1_Intensity: isTrue(summaryMatch.qa_ms1_good_int),
           S2N_ratio: isTrue(summaryMatch.qa_ms1_above_noise),
           RT_Alignment: isTrue(summaryMatch.alignment),
+          ID: row.ID,
           adduct: row.adduct,
           tag: row.tag
         };
