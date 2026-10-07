@@ -1,5 +1,6 @@
 import os
 import json
+import shutil
 import yaml
 import pandas as pd
 import multiprocessing as mp
@@ -34,6 +35,27 @@ def build_feature_base(ID, adduct, tag):
     if adduct:
         return f"{ID}_{adduct}_{tag}"
     return f"{ID}_{tag}"
+
+
+def _backup_summary_table(working_dir):
+    """
+    Copy an existing summary_table.csv to backups/summary_table_<date>_<time>.csv
+    before it is overwritten, so manual QA corrections are never lost.
+    Returns the backup path, or None if there was no table to back up.
+    """
+    table = os.path.join(working_dir, "summary_table.csv")
+    if not os.path.exists(table):
+        return None
+    backup_dir = os.path.join(working_dir, "backups")
+    os.makedirs(backup_dir, exist_ok=True)
+    stamp = pd.Timestamp.now().strftime("%Y-%m-%d_%H%M%S")
+    backup = os.path.join(backup_dir, f"summary_table_{stamp}.csv")
+    n = 1
+    while os.path.exists(backup):  # two runs within the same second
+        backup = os.path.join(backup_dir, f"summary_table_{stamp}_{n}.csv")
+        n += 1
+    shutil.copy2(table, backup)
+    return backup
 
 
 def _clean_str(value):
@@ -280,8 +302,14 @@ def _prescreen_impl(working_dir, job_id=None) -> dict:
                 update_job(working_dir, job_id, progress=prog, message=f"Prescreen {done}/{total}…")
 
         out = os.path.join(working_dir, "summary_table.csv")
+        try:
+            backup = _backup_summary_table(working_dir)
+        except Exception as e:
+            # do not overwrite the old table if it could not be backed up
+            return {"status": "error",
+                    "message": f"Could not back up existing summary_table.csv, nothing was overwritten: {e}"}
         pd.DataFrame(summary_rows).to_csv(out, index=False)
-        return {"status": "success", "summary_path": out}
+        return {"status": "success", "summary_path": out, "backup_path": backup}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -444,7 +472,11 @@ def _run_pipeline_background(job_id, working_dir):
                        finished_at=pd.Timestamp.utcnow().isoformat())
             return
 
-        update_job(working_dir, job_id, state="running", progress=85, message="Prescreen complete. Generating MSP library…",
+        backup_note = ""
+        if res2.get("backup_path"):
+            backup_note = f" Previous summary table saved as backups/{os.path.basename(res2['backup_path'])}."
+        update_job(working_dir, job_id, state="running", progress=85,
+                   message=f"Prescreen complete.{backup_note} Generating MSP library…",
                    finished_at=pd.Timestamp.utcnow().isoformat())
         
         # ---------------------------
