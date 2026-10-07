@@ -34,6 +34,14 @@ def build_feature_base(ID, adduct, tag):
     if adduct:
         return f"{ID}_{adduct}_{tag}"
     return f"{ID}_{tag}"
+
+
+def _clean_str(value):
+    """Return '' for missing values (NaN, None, 'nan'), otherwise the value as text."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    value = str(value).strip()
+    return "" if value.lower() in {"nan", "none", "null"} else value
 # ==========================================================
 # EXTRACTION  
 # ==========================================================
@@ -289,23 +297,24 @@ def _build_msp_entry(args):
 
     ID = row["ID"]
     tag = row["tag"]
-    adduct = row["adduct"]
+    adduct = _clean_str(row["adduct"])
     rt = row.get("ms1_rt", "")
     peak_list = row.get("peak_list", "")
 
     if pd.isna(peak_list) or peak_list == "":
       return None
 
-    comp = compound_lookup.get((ID,tag))
+    # look up by ID + adduct + tag (unique); ID + tag kept as fallback
+    comp = compound_lookup.get((ID, adduct, tag)) or compound_lookup.get((ID, tag))
 
     if comp is None:
         return None
 
-    name = comp.get("Name", "Unknown")
-    smiles = comp.get("SMILES", "")
-    precursor = comp.get("mz", "")
-    formula = comp.get("Formula","")
-    inchikey = comp.get("InChIKey","")
+    name = _clean_str(comp.get("Name")) or "Unknown"
+    smiles = _clean_str(comp.get("SMILES"))
+    precursor = _clean_str(comp.get("mz"))
+    formula = _clean_str(comp.get("Formula"))
+    inchikey = _clean_str(comp.get("InChIKey"))
    
     peaks = []
 
@@ -326,7 +335,7 @@ def _build_msp_entry(args):
     lines.append(f"InChIKey: {inchikey}")
     
 
-    if rt:
+    if _clean_str(rt):
         lines.append(f"RT: {rt}")
 
     lines.append(f"Num Peaks: {len(peaks)}")
@@ -350,11 +359,10 @@ def generate_msp_library(working_dir, job_id=None):
     summary = pd.read_csv(summary_path)
     summary["qa_pass"] = summary["qa_pass"].astype(str).str.upper() == "TRUE"
     summary["ms2_sel"] = summary["ms2_sel"].astype(str).str.upper() == "TRUE"
-    comp = (
-        pd.read_csv(comp_path)
-        .set_index(["ID", "tag"])
-        .to_dict("index")
-    )
+    # key = ID + adduct + tag, which is unique even with several adducts per tag
+    comp = {}
+    for r in pd.read_csv(comp_path).to_dict("records"):
+        comp.setdefault((r["ID"], _clean_str(r.get("adduct")), r["tag"]), r)
     valid = summary[
         (summary["qa_pass"] == True) &
         (summary["ms2_sel"] == True)
