@@ -239,11 +239,19 @@ const PlottingPage = () => {
       .then((res) => {
         const notFound = res?.data?.not_found || [];
         const noMs2 = res?.data?.no_ms2_near_peak || [];
+        const recalculated = res?.data?.recalculated || [];
         const messages = [];
+        if (recalculated.length) {
+          messages.push(`ℹ️ New peak selected: MS1 Intensity, S2N Ratio and RT Align were recalculated for: ${recalculated.join(', ')}. Check them and save again if you want to change them.`);
+        }
         if (notFound.length) messages.push(`⚠️ QA flags not saved for: ${notFound.join(', ')}`);
         if (noMs2.length) messages.push(`⚠️ No MS2 scan near the selected peak for: ${noMs2.join(', ')}`);
         if (res?.data?.msp_error) messages.push(`⚠️ MSP library not updated: ${res.data.msp_error}`);
         alert(messages.length ? messages.join('\n') : '✅ QA flags updated');
+
+        // forget unsaved edits for the saved rows, so the reloaded (possibly
+        // recalculated) values are shown instead of the old tick boxes
+        Object.keys(qaFlags).forEach((k) => { delete qaFlagsCache.current[k]; });
 
         // reload the summary table so the page shows the saved values
         axios.get(`${API_BASE}/load_summary_table`, {
@@ -394,7 +402,7 @@ const PlottingPage = () => {
           MS2_Exists: isTrue(summaryMatch.qa_ms2_exists),
           MS1_Intensity: isTrue(summaryMatch.qa_ms1_good_int),
           S2N_ratio: isTrue(summaryMatch.qa_ms1_above_noise),
-          RT_Alignment: isTrue(summaryMatch.alignment),
+          RT_Alignment: isTrue(summaryMatch.qa_ms2_near),  // RT Align = MS2 near peak (counts for qa_pass)
           ID: row.ID,
           adduct: row.adduct,
           tag: row.tag

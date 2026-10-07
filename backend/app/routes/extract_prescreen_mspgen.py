@@ -343,6 +343,9 @@ def _prescreen_impl(working_dir, job_id=None) -> dict:
             else:
                 summary["alignment"] = False
 
+            # RT Align in the UI = MS2 near peak; keep both columns identical
+            summary["alignment"] = summary["qa_ms2_near"]
+
             flags = ["qa_ms1_exists","qa_ms1_good_int","qa_ms1_above_noise",
                      "qa_ms2_exists","qa_ms2_good_int","qa_ms2_near"]
             summary["qa_pass"] = all(summary[f] for f in flags)

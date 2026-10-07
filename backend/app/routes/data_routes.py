@@ -9,33 +9,81 @@ import yaml
 from flask import Blueprint, request, jsonify, send_file, current_app
 
 from app.utils import get_working_dir
-from app.routes.extract_prescreen_mspgen import build_feature_base, generate_msp_library
+from app.routes.extract_prescreen_mspgen import build_feature_base, generate_msp_library, find_top_peaks
 
 data_bp = Blueprint("data", __name__)
 
 
-def _load_rt_tolerance(working_directory):
-    """RT tolerance (min) used by the prescreen, from extract_config.yaml; 0.5 if unavailable."""
+def _load_prescreen_settings(working_directory):
+    """
+    Prescreen settings from extract_config.yaml: RT tolerance (min, default 0.5),
+    MS1 intensity threshold and S/N factor (None if unavailable).
+    """
+    settings = {"rt_tol": 0.5, "ms1_thresh": None, "s2n": None}
     try:
         with open(os.path.join(working_directory, "extract_config.yaml"), "r") as f:
-            config = yaml.safe_load(f) or {}
-        raw = config["prescreen"]["ret_time_shift_tol"]
-        return float(str(raw).replace("min", "").strip())
+            prescreen = (yaml.safe_load(f) or {}).get("prescreen") or {}
     except Exception:
-        return 0.5
+        return settings
+    try:
+        settings["rt_tol"] = float(str(prescreen["ret_time_shift_tol"]).replace("min", "").strip())
+    except Exception:
+        pass
+    try:
+        settings["ms1_thresh"] = float(prescreen["ms1_int_thresh"])
+        settings["s2n"] = float(prescreen["s2n"])
+    except Exception:
+        pass
+    return settings
 
 
-def _apply_selected_peak(df, idx, ms1_rt, working_directory, rt_tol):
+def _measure_ms1_peak(eic_path, ms1_rt):
     """
-    Use the MS1 peak selected by the user for this summary row.
-    The MS2 scan is chosen with the same rule as the prescreen:
-    closest MS2 scan with |ms2_rt - ms1_rt| < RT tolerance.
-    Returns True if such an MS2 scan exists.
+    Apex intensity of the MS1 peak at ms1_rt and the trace mean, measured the
+    same way as the prescreen (find_top_peaks apex, mean of the whole trace).
+    Returns (apex, mean) or (None, None) if the trace cannot be read.
     """
+    if not os.path.exists(eic_path):
+        return None, None
+    eic = pd.read_csv(eic_path)
+    if eic.empty:
+        return None, None
+    rts = eic["rt"].to_numpy(dtype=float)
+    ints = eic["intensity"].to_numpy(dtype=float)
+    peaks = find_top_peaks(rts, ints, n=10)
+    match = [p for p in peaks if abs(p["rt"] - ms1_rt) < 0.005]
+    if match:
+        apex = match[0]["apex_intensity"]
+    else:
+        # RT not among the detected peaks: highest point within +/-0.05 min
+        window = np.abs(rts - ms1_rt) <= 0.05
+        apex = float(ints[window].max()) if window.any() else 0.0
+    return apex, float(ints.mean())
+
+
+def _apply_selected_peak(df, idx, ms1_rt, working_directory, settings):
+    """
+    Use the MS1 peak selected by the user for this summary row and recalculate
+    the measured flags for it, with the same rules as the prescreen:
+    - MS2: closest MS2 scan with |ms2_rt - ms1_rt| < RT tolerance
+      -> ms2_rt, peak_list, ms2_sel, qa_ms2_near (= RT Align)
+    - MS1: apex intensity vs. MS1 threshold, apex vs. mean * S/N
+      -> qa_ms1_good_int, qa_ms1_above_noise
+    Returns True if an MS2 scan was found near the peak.
+    """
+    rt_tol = settings["rt_tol"]
     df.at[idx, "ms1_rt"] = ms1_rt
     df.at[idx, "manual_peak"] = True
+    df.at[idx, "qa_ms1_exists"] = True
 
     base = build_feature_base(df.at[idx, "ID"], df.at[idx, "adduct"], df.at[idx, "tag"])
+
+    apex, mean = _measure_ms1_peak(
+        os.path.join(working_directory, "ms2_spectra", f"{base}_EIC.csv"), ms1_rt)
+    if apex is not None and settings["ms1_thresh"] is not None:
+        df.at[idx, "qa_ms1_good_int"] = bool(apex > settings["ms1_thresh"])
+        df.at[idx, "qa_ms1_above_noise"] = bool(apex > mean * settings["s2n"])
+
     ms2_path = os.path.join(working_directory, "ms2_spectra", f"{base}_MS2.csv")
     best = None
     if os.path.exists(ms2_path):
@@ -47,11 +95,13 @@ def _apply_selected_peak(df, idx, ms1_rt, working_directory, rt_tol):
 
     if best is not None:
         df.at[idx, "qa_ms2_near"] = True
+        df.at[idx, "alignment"] = True
         df.at[idx, "ms2_sel"] = True
         df.at[idx, "ms2_rt"] = float(best["ms2_rt"])
         df.at[idx, "peak_list"] = best["peak_list"]
     else:
         df.at[idx, "qa_ms2_near"] = False
+        df.at[idx, "alignment"] = False
         df.at[idx, "ms2_sel"] = False
         df.at[idx, "ms2_rt"] = np.nan
         df.at[idx, "peak_list"] = np.nan
@@ -229,10 +279,11 @@ def save_qa_flags():
         updated_rows = 0
         not_found = []
         no_ms2_near_peak = []
+        recalculated = []
 
         # Selected MS1 peaks (sent as MS1_RT only when the user changed the peak)
         if any("MS1_RT" in update for update in flags.values()):
-            rt_tol = _load_rt_tolerance(working_directory)
+            settings = _load_prescreen_settings(working_directory)
             if "manual_peak" not in df.columns:
                 df["manual_peak"] = False
             df["ms1_rt"] = pd.to_numeric(df["ms1_rt"], errors="coerce")
@@ -262,6 +313,7 @@ def save_qa_flags():
             print(f"Updating row for ID={compound_id}, adduct={adduct}, tag={tag}")
             print(" Incoming flags:", update)
 
+            changed_rows = set()
             if update.get("MS1_RT") is not None:
                 try:
                     new_rt = float(update["MS1_RT"])
@@ -271,23 +323,36 @@ def save_qa_flags():
                     current = df.at[idx, "ms1_rt"]
                     if pd.notna(current) and abs(current - new_rt) < 1e-6:
                         continue  # same peak as before, nothing to change
-                    has_ms2 = _apply_selected_peak(df, idx, new_rt, working_directory, rt_tol)
+                    has_ms2 = _apply_selected_peak(df, idx, new_rt, working_directory, settings)
+                    changed_rows.add(idx)
                     print(f" Selected MS1 peak RT={new_rt} at row {idx}, MS2 near peak: {has_ms2}")
                     if not has_ms2:
                         no_ms2_near_peak.append(compound_key)
+                if changed_rows:
+                    recalculated.append(compound_key)
 
-            for display_key, summary_key in {
-                "MS1_Exists": "qa_ms1_exists",
-                "MS2_Exists": "qa_ms2_exists",
-                "MS1_Intensity": "qa_ms1_good_int",
-                "RT_Alignment": "alignment",
-                "S2N_ratio": "qa_ms1_above_noise"
+            # Tick boxes. "RT Align" controls qa_ms2_near, which counts for qa_pass
+            # ("alignment" is kept equal to it for older readers).
+            # For a row whose peak was just changed, the measured flags were
+            # recalculated above; the ticks sent with this save still describe the
+            # old peak, so they are not applied. The reviewer can override afterwards.
+            recalculated_flags = {"MS1_Exists", "MS1_Intensity", "S2N_ratio", "RT_Alignment"}
+
+            for display_key, summary_keys in {
+                "MS1_Exists": ["qa_ms1_exists"],
+                "MS2_Exists": ["qa_ms2_exists"],
+                "MS1_Intensity": ["qa_ms1_good_int"],
+                "RT_Alignment": ["qa_ms2_near", "alignment"],
+                "S2N_ratio": ["qa_ms1_above_noise"]
             }.items():
                 if display_key in update:
                     value = bool(update[display_key])
                     for idx in df[mask].index:
-                        df.at[idx, summary_key] = value
-                        print(f" Set {summary_key} at row {idx} = {value}")
+                        if idx in changed_rows and display_key in recalculated_flags:
+                            continue
+                        for summary_key in summary_keys:
+                            df.at[idx, summary_key] = value
+                            print(f" Set {summary_key} at row {idx} = {value}")
 
             for idx in df[mask].index:
                 all_flags = [
@@ -328,6 +393,7 @@ def save_qa_flags():
             "updated_rows": updated_rows,
             "not_found": not_found,
             "no_ms2_near_peak": no_ms2_near_peak,
+            "recalculated": recalculated,
             "msp_entries": msp_entries,
             "msp_error": msp_error
         })
