@@ -242,15 +242,18 @@ def save_extract_config():
     
 @state_bp.route('/load_extraction_config', methods=['GET'])
 def load_extraction_config():
-    working_dir = request.args.get('working_directory')
+    # Same path resolution as save_extract_config, so "~" paths work too
+    working_dir = resolve_path(request.args.get('working_directory', '.'))
     config_path = os.path.join(working_dir, 'extract_config.yaml')
 
     try:
         with open(config_path, 'r') as f:
             config = yaml.safe_load(f)
-        ret_time_shift_tol = config.get('ret_time_shift_tol', 0.5)
+        # save_extract_config stores this under "prescreen" as e.g. "0.5 min"
+        raw = config['prescreen']['ret_time_shift_tol']
+        ret_time_shift_tol = float(str(raw).replace('min', '').strip())
         return jsonify({'ret_time_shift_tol': ret_time_shift_tol})
-    
+
     except Exception as e:
         print(f"Error loading extract_config.yaml: {e}")
         return jsonify({'ret_time_shift_tol': 0.5})
