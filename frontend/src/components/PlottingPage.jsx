@@ -570,6 +570,16 @@ const handleDownloadMspFile = async () => {
       .join('\n');
 
     /* MSP METADATA */
+    // m/z, SMILES, formula and InChIKey are in the comprehensive table row
+    // (selectedGroup), not in the summary table.
+    const compRow = selectedGroup[0];
+    const clean = (v) => {
+      const s = v == null ? '' : String(v).trim();
+      return ['nan', 'null', 'none'].includes(s.toLowerCase()) ? '' : s;
+    };
+    // Same RT as library_all.msp: the MS1 peak RT
+    const ms1Rt = clean(summaryRow.ms1_rt);
+
     const safeAdduct =
       adduct == null || adduct === 'null' || adduct === 'nan' || String(adduct).trim() === ''
         ? 'noadduct'
@@ -578,12 +588,12 @@ const handleDownloadMspFile = async () => {
       `Name: ${summaryRow.Name || ID}`,
       `COMMENT: ID= ${ID}`,
       `COMMENT: Tag= ${summaryRow.tag}`,
-      `PRECURSORMZ: ${summaryRow.mz || ""}`,
+      `PRECURSORMZ: ${clean(compRow.mz)}`,
       `PRECURSORTYPE: ${safeAdduct === 'noadduct' ? '' : safeAdduct}`,
-      `SMILES: ${summaryRow.SMILES || ""}`,
-      `FORMULA: ${summaryRow.formula || ""}`,
-      `InChIKey: ${summaryRow.InChIKey || ""}`,
-      `RT: ${ms2Rt}`,
+      `SMILES: ${clean(compRow.SMILES)}`,
+      `FORMULA: ${clean(compRow.Formula)}`,
+      `InChIKey: ${clean(compRow.InChIKey)}`,
+      ...(ms1Rt ? [`RT: ${ms1Rt}`] : []),
       `Num Peaks: ${peakString.split(';').length}`,
       peaks,
       ""
