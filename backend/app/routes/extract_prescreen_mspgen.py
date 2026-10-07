@@ -73,10 +73,14 @@ def moving_average(values, window=5):
 def find_top_peaks(rts, intensities, n=3, min_separation=0.15,
                    prominence_frac=0.05, min_width_points=3):
     """
-    Top-n MS1 peaks of an EIC trace, as list of dicts {rt, intensity, idx},
-    most intense first. Line-by-line Python copy of findTopPeaks() in
-    frontend CompoundPlot.jsx, so the summary table and the plot always
-    pick the same peaks. Keep both implementations in sync.
+    Top-n MS1 peaks of an EIC trace, as list of dicts {rt, intensity, idx,
+    apex_intensity}, most intense first. Line-by-line Python copy of
+    findTopPeaks() in frontend CompoundPlot.jsx, so the summary table and the
+    plot always pick the same peaks. Keep both implementations in sync.
+
+    "intensity" is the raw value at the smoothed maximum (used for ranking,
+    as in the plot). "apex_intensity" is the highest raw value between the
+    peak's valleys, i.e. the true peak height, used for the QA intensity checks.
     """
     rts = np.asarray(rts, dtype=float)
     ints = np.asarray(intensities, dtype=float)
@@ -101,7 +105,15 @@ def find_top_peaks(rts, intensities, n=3, min_separation=0.15,
                 continue
             baseline = max(min(sm[l], sm[r]), 1e-12)
             if sm[i] - baseline >= min_prom:
-                candidates.append({"rt": float(rts[i]), "intensity": float(ints[i]), "idx": i})
+                # whole peak for the apex: walk downhill (or flat) to the valley on each side
+                a = i
+                while a > 0 and sm[a - 1] <= sm[a]:
+                    a -= 1
+                b = i
+                while b < len(sm) - 1 and sm[b + 1] <= sm[b]:
+                    b += 1
+                candidates.append({"rt": float(rts[i]), "intensity": float(ints[i]), "idx": i,
+                                   "apex_intensity": float(ints[a:b + 1].max())})
 
     candidates.sort(key=lambda c: -c["intensity"])  # stable, like JS sort
     picked = []
@@ -299,7 +311,7 @@ def _prescreen_impl(working_dir, job_id=None) -> dict:
                     peak_int = None
                     if top_peaks:
                         rt_peak  = top_peaks[0]["rt"]
-                        peak_int = top_peaks[0]["intensity"]
+                        peak_int = top_peaks[0]["apex_intensity"]
                     # no peak detected -> no MS1 peak (no fallback to the raw maximum,
                     # which invented a "peak" at the first scan of empty traces)
                     if rt_peak is not None:
