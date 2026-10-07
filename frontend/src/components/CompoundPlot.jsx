@@ -307,7 +307,7 @@ const getTagDash   = (idx) => TAG_DASHES[idx % TAG_DASHES.length];
  */
 
 
-const CompoundPlot = ({ compoundGroup, onExportReady, theme }) => {
+const CompoundPlot = ({ compoundGroup, onExportReady, onPeaksReady, theme }) => {
   
   const [useRelative, setUseRelative] = useState(true);
   const [fragmentsGreyscale, setFragmentsGreyscale] = useState(false);
@@ -425,6 +425,7 @@ const exportFilename = useMemo(() => {
       //const colors = chroma.scale('Set1').colors(uniqueIds.length);
          
       const uniqueTags = Array.from(new Set(compoundGroup.map(c => c.tag)));
+      const peaksByKey = {}; // top MS1 peaks per row, offered for manual peak selection
 
       for (const compound of compoundGroup) {
         const { ID, tag, adduct } = compound;
@@ -449,6 +450,7 @@ const exportFilename = useMemo(() => {
             prominenceFrac: 0.05,
             minWidthPoints: 3,
           });
+          peaksByKey[`${ID}_${adduct}_${tag}`] = topPeaks.map((p) => ({ rt: p.rt, intensity: p.intensity }));
 
                         
           topPeaks.forEach((pk, i) => {
@@ -603,6 +605,7 @@ const exportFilename = useMemo(() => {
       };
 
       setPlotObj({ data, layout });
+      if (onPeaksReady) onPeaksReady(peaksByKey);
       setMzText(`Name: ${first.Name} | m/z: ${parseFloat(first.mz).toFixed(4)}`);
 
       if (onExportReady && match?.SMILES) {

@@ -185,6 +185,7 @@ const PlottingPage = () => {
   const [singlePlotFilename, setSinglePlotFilename] = useState('');
   const [exportPayload, setExportPayload] = useState(null);
   const [qaFlags, setQaFlags] = useState({});
+  const [peakOptions, setPeakOptions] = useState({}); // top MS1 peaks per row, from CompoundPlot
   const [toastMessage, setToastMessage] = useState('');
   const qaFlagsCache = useRef({});
   const isTrue = (val) => val === true || val === 'true' || val === 'True' || val === 1 || val === '1';
@@ -237,11 +238,19 @@ const PlottingPage = () => {
     saveQAFlags(appState.working_directory, qaFlags)
       .then((res) => {
         const notFound = res?.data?.not_found || [];
-        if (notFound.length) {
-          alert(`⚠️ QA flags not saved for: ${notFound.join(', ')}`);
-        } else {
-          alert('✅ QA flags updated');
-        }
+        const noMs2 = res?.data?.no_ms2_near_peak || [];
+        const messages = [];
+        if (notFound.length) messages.push(`⚠️ QA flags not saved for: ${notFound.join(', ')}`);
+        if (noMs2.length) messages.push(`⚠️ No MS2 scan near the selected peak for: ${noMs2.join(', ')}`);
+        if (res?.data?.msp_error) messages.push(`⚠️ MSP library not updated: ${res.data.msp_error}`);
+        alert(messages.length ? messages.join('\n') : '✅ QA flags updated');
+
+        // reload the summary table so the page shows the saved values
+        axios.get(`${API_BASE}/load_summary_table`, {
+          params: { working_directory: appState.working_directory },
+        })
+          .then((r) => setSummaryData(r.data))
+          .catch(console.error);
       })
       .catch(() => alert('❌ Failed to update QA flags'));
   };
@@ -408,6 +417,44 @@ const PlottingPage = () => {
     return updated;
   });
 };
+
+  // Manual MS1 peak selection: MS1_RT is only sent when the user changes the peak
+  const selectPeak = (key, rt) => {
+    setQaFlags(prev => {
+      const updated = { ...prev, [key]: { ...prev[key], MS1_RT: rt } };
+      qaFlagsCache.current[key] = updated[key];
+      return updated;
+    });
+  };
+
+  const renderPeakSelect = (row, key, flags) => {
+    const summaryRow = summaryData.find(
+      s => s.ID === row.ID && s.adduct === row.adduct && s.tag === row.tag
+    ) || {};
+    const savedRt = parseFloat(summaryRow.ms1_rt);
+    const currentRt = flags.MS1_RT ?? (Number.isFinite(savedRt) ? savedRt : null);
+    const peakRts = (peakOptions[key] || []).map(p => p.rt).filter(Number.isFinite);
+    const match = currentRt == null ? undefined : peakRts.find(rt => Math.abs(rt - currentRt) < 0.005);
+    const options = currentRt != null && match === undefined ? [currentRt, ...peakRts] : peakRts;
+    const selected = match !== undefined ? match : currentRt;
+    if (!options.length) return '–';
+    return (
+      <select
+        value={selected != null ? String(selected) : ''}
+        onChange={(e) => selectPeak(key, parseFloat(e.target.value))}
+        style={{ fontSize: 12 }}
+      >
+        {selected == null && <option value="">–</option>}
+        {options.map(rt => (
+          <option key={rt} value={String(rt)}>
+            {peakRts.includes(rt)
+              ? `#${peakRts.indexOf(rt) + 1} · ${rt.toFixed(2)} min`
+              : `${rt.toFixed(2)} min (saved)`}
+          </option>
+        ))}
+      </select>
+    );
+  };
 
 const handleExportPeakList = async () => {
   if (!appState?.working_directory || !selectedGroup || !isSingleTagSelected()) return;
@@ -850,6 +897,7 @@ useEffect(() => {
           <tr>
             <th style={thStyle}>Tag</th>
             <th style={thStyle}>Adduct</th>
+            <th style={thStyle}>MS1 Peak</th>
             <th style={thStyle}>MS1 Exists</th>
             <th style={thStyle}>MS2 Exists</th>
             <th style={thStyle}>MS1 Intensity</th>
@@ -865,6 +913,7 @@ useEffect(() => {
               <tr key={idx}>
                 <td style={tdStyle}>{row.tag}</td>
                 <td style={tdStyle}>{row.adduct}</td>
+                <td style={tdStyle}>{renderPeakSelect(row, key, flags)}</td>
                 {['MS1_Exists','MS2_Exists','MS1_Intensity','S2N_ratio','RT_Alignment'].map(flag => (
                   <td key={flag} style={{ ...tdStyle, textAlign: 'center' }}>
                     <input
@@ -1036,6 +1085,7 @@ useEffect(() => {
   <CompoundPlot
     compoundGroup={selectedGroup || []}
     onExportReady={setExportPayload}
+    onPeaksReady={setPeakOptions}
     onFilenameChange={setSinglePlotFilename}
     theme={theme}
   />
