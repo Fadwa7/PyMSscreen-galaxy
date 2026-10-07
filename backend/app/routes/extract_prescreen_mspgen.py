@@ -235,17 +235,20 @@ def _prescreen_impl(working_dir, job_id=None) -> dict:
             rt_peak = None
             if os.path.exists(eic_path):
                 eic_df = pd.read_csv(eic_path)
-                if not eic_df.empty:
-                    summary["qa_ms1_exists"] = True
+                # an all-zero trace has no MS1 signal at all
+                if not eic_df.empty and eic_df["intensity"].max() > 0:
                     max_int  = eic_df["intensity"].max()
                     mean_int = eic_df["intensity"].mean()
                      # --- prominence-filtered peak detection (mirrors CompoundPlot.jsx findTopPeaks) ---
                     intensities = eic_df["intensity"].to_numpy(dtype=float)
                     rts         = eic_df["rt"].to_numpy(dtype=float)
 
-                    # 1) smooth with a 5-point moving average
-                    kernel = np.ones(5) / 5
-                    sm = np.convolve(intensities, kernel, mode='same')
+                    # 1) smooth with a 5-point moving average; at the edges, average only over
+                    #    existing points (same as movingAverage in CompoundPlot.jsx). Zero-padding
+                    #    here created fake peaks at the start/end of the run.
+                    kernel = np.ones(5)
+                    sm = (np.convolve(intensities, kernel, mode='same')
+                          / np.convolve(np.ones_like(intensities), kernel, mode='same'))
 
                     # 2) find local maxima with minimum width of 3 points
                     from scipy.signal import find_peaks
@@ -261,13 +264,14 @@ def _prescreen_impl(working_dir, job_id=None) -> dict:
                         # 4) pick the most intense among prominent peaks
                         best = max(prominent, key=lambda i: intensities[i])
                         rt_peak = float(rts[best])
-                    else:
-                        # fallback to raw max if no peaks detected at all
-                        rt_peak = float(eic_df.loc[eic_df["intensity"].idxmax(), "rt"])
-                    summary["ms1_rt"]   = rt_peak
-                    summary["alignment"]= True
-                    if max_int > ms1_thresh: summary["qa_ms1_good_int"] = True
-                    if max_int > mean_int * s2n: summary["qa_ms1_above_noise"] = True
+                    # no peak detected -> no MS1 peak (no fallback to the raw maximum,
+                    # which invented a "peak" at the first scan of empty traces)
+                    if rt_peak is not None:
+                        summary["qa_ms1_exists"] = True
+                        summary["ms1_rt"]   = rt_peak
+                        summary["alignment"]= True
+                        if max_int > ms1_thresh: summary["qa_ms1_good_int"] = True
+                        if max_int > mean_int * s2n: summary["qa_ms1_above_noise"] = True
 
             if os.path.exists(ms2_path):
                 ms2_df = pd.read_csv(ms2_path)
