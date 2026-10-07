@@ -4,11 +4,6 @@ import shutil
 import yaml
 import numpy as np
 import pandas as pd
-import multiprocessing as mp
-from rdkit import Chem
-from rdkit.Chem.inchi import MolToInchiKey
-from flask import request, jsonify
-#from .web_app import app
 from app.jobs.job_store import update_job
 
 def load_pyopenms():
@@ -36,6 +31,11 @@ def build_feature_base(ID, adduct, tag):
     if adduct:
         return f"{ID}_{adduct}_{tag}"
     return f"{ID}_{tag}"
+
+
+def _utcnow_iso():
+    """Current UTC time as ISO string (pd.Timestamp.utcnow() is deprecated)."""
+    return pd.Timestamp.now(tz="UTC").isoformat()
 
 
 def _backup_summary_table(working_dir):
@@ -498,20 +498,20 @@ def _prescreen_outputs_exist(working_dir: str) -> bool:
 def _run_pipeline_background(job_id, working_dir):
     try:
         update_job(working_dir, job_id, state="running",
-                   started_at=pd.Timestamp.utcnow().isoformat(),
+                   started_at=_utcnow_iso(),
                    progress=5, message="Starting extraction…")
 
         # Extraction
         res1 = _extract_data_impl(working_dir, job_id=job_id)
         if res1.get("status") != "success":
             update_job(working_dir, job_id, state="error", progress=0,
-                       message=f"Extraction failed: {res1}", finished_at=pd.Timestamp.utcnow().isoformat())
+                       message=f"Extraction failed: {res1}", finished_at=_utcnow_iso())
             return
 
         if not _extraction_outputs_exist(working_dir):
             update_job(working_dir, job_id, state="error", progress=55,
                        message="Extraction finished but no spectra/EIC files found.",
-                       finished_at=pd.Timestamp.utcnow().isoformat())
+                       finished_at=_utcnow_iso())
             return
 
         update_job(working_dir, job_id, progress=60, message="Extraction done. Starting prescreen…")
@@ -520,13 +520,13 @@ def _run_pipeline_background(job_id, working_dir):
         res2 = _prescreen_impl(working_dir, job_id=job_id)
         if res2.get("status") != "success":
             update_job(working_dir, job_id, state="error", progress=60,
-                       message=f"Prescreen failed: {res2}", finished_at=pd.Timestamp.utcnow().isoformat())
+                       message=f"Prescreen failed: {res2}", finished_at=_utcnow_iso())
             return
 
         if not _prescreen_outputs_exist(working_dir):
             update_job(working_dir, job_id, state="error", progress=80,
                        message="Prescreen finished but summary_table.csv not found.",
-                       finished_at=pd.Timestamp.utcnow().isoformat())
+                       finished_at=_utcnow_iso())
             return
 
         backup_note = ""
@@ -534,7 +534,7 @@ def _run_pipeline_background(job_id, working_dir):
             backup_note = f" Previous summary table saved as backups/{os.path.basename(res2['backup_path'])}."
         update_job(working_dir, job_id, state="running", progress=85,
                    message=f"Prescreen complete.{backup_note} Generating MSP library…",
-                   finished_at=pd.Timestamp.utcnow().isoformat())
+                   finished_at=_utcnow_iso())
         
         # ---------------------------
         # STEP 3 — MSP library
@@ -568,13 +568,13 @@ def _run_pipeline_background(job_id, working_dir):
             state="done",
             progress=100,
             message="✅ Extraction, prescreening, and msp library generation complete.",
-            finished_at=pd.Timestamp.utcnow().isoformat()
+            finished_at=_utcnow_iso()
         )
 
     except Exception as e:
         update_job(working_dir, job_id, state="error",
                    message=f"Unhandled error in background pipeline: {e}",
-                   finished_at=pd.Timestamp.utcnow().isoformat())
+                   finished_at=_utcnow_iso())
 
 
 
