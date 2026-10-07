@@ -5,8 +5,34 @@ from plotly.subplots import make_subplots
 from fpdf import FPDF
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
+import matplotlib
 import os
+import tempfile
+
+from app.routes.extract_prescreen_mspgen import build_feature_base
+
+
+def _clean(value):
+    """Missing values (None, NaN, 'nan', 'null') -> ''."""
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return ""
+    text = str(value).strip()
+    return "" if text.lower() in {"nan", "none", "null"} else text
+
+
+def _load_summary(working_dir):
+    """
+    Summary rows keyed by (ID, adduct, tag). The PDF shows the peak and MS2
+    spectrum chosen in the summary table (automatic or manually reviewed),
+    the same ones used for library_all.msp.
+    """
+    path = os.path.join(working_dir, "summary_table.csv")
+    if not os.path.exists(path):
+        return {}
+    df = pd.read_csv(path)
+    return {(_clean(r["ID"]), _clean(r.get("adduct")), _clean(r["tag"])): r
+            for r in df.to_dict("records")}
+
 
 def register_pdf_export(app):
 
@@ -18,6 +44,8 @@ def register_pdf_export(app):
         if not compound_groups or not working_dir:
             return jsonify({"error": "Missing required data"}), 400
 
+        summary = _load_summary(working_dir)
+
         pdf = FPDF()
         pdf.set_auto_page_break(auto=True, margin=15)
 
@@ -28,47 +56,52 @@ def register_pdf_export(app):
             )
 
             compounds = group.get('compounds', [])
-            unique_ids = [f"{c['tag']}_{c['adduct']}" for c in compounds]
-            unique_identifiers = list(set(unique_ids))
-            colors = plt.cm.get_cmap('tab20', len(unique_identifiers)).colors
-            color_map = {uid: f'rgb({int(r*255)},{int(g*255)},{int(b*255)})' for uid, (r,g,b,_) in zip(unique_identifiers, colors)}
+            unique_ids = [f"{c.get('tag', '')}_{_clean(c.get('adduct'))}" for c in compounds]
+            unique_identifiers = list(dict.fromkeys(unique_ids))  # stable order
+            # plt.cm.get_cmap was removed in Matplotlib 3.9; use the colormap registry
+            cmap = matplotlib.colormaps["tab20"].resampled(max(1, len(unique_identifiers)))
+            color_map = {}
+            for i, uid in enumerate(unique_identifiers):
+                r, g, b, _ = cmap(i)
+                color_map[uid] = f'rgb({int(r*255)},{int(g*255)},{int(b*255)})'
 
             for compound in compounds:
                 compound_id = compound.get('ID')
                 tag = compound.get('tag', '')
-                adduct = compound.get('adduct', '')
-                name = compound.get('Name', compound_id)
+                adduct = _clean(compound.get('adduct'))
                 identifier = f"{tag}_{adduct}"
                 color = color_map[identifier]
+                # same file naming as the extraction (rows without adduct: ID_tag)
+                base = build_feature_base(compound_id, adduct, tag)
+                row = summary.get((_clean(compound_id), adduct, _clean(tag)), {})
+                ms1_rt = pd.to_numeric(row.get("ms1_rt"), errors="coerce")
+                ms2_rt = pd.to_numeric(row.get("ms2_rt"), errors="coerce")
 
                 # MS1
-                eic_path = os.path.join(working_dir, "ms2_spectra", f"{compound_id}_{adduct}_{tag}_EIC.csv")
+                eic_path = os.path.join(working_dir, "ms2_spectra", f"{base}_EIC.csv")
                 if os.path.exists(eic_path):
                     eic_df = pd.read_csv(eic_path)
-                    max_rt = eic_df.loc[eic_df['intensity'].idxmax(), 'rt']
-                    fig.add_trace(go.Scatter(x=eic_df["rt"], y=eic_df["intensity"],
-                                             name=f"MS1 {tag} {adduct} (RT: {max_rt:.2f})",
-                                             line=dict(color=color)), row=1, col=1)
+                    if not eic_df.empty:
+                        rt_label = f"RT: {ms1_rt:.2f}" if pd.notna(ms1_rt) else "no peak"
+                        fig.add_trace(go.Scatter(x=eic_df["rt"], y=eic_df["intensity"],
+                                                 name=f"MS1 {tag} {adduct} ({rt_label})",
+                                                 line=dict(color=color)), row=1, col=1)
 
-                # MS2
-                ms2_path = os.path.join(working_dir, "ms2_spectra", f"{compound_id}_{adduct}_{tag}_MS2.csv")
-                if os.path.exists(ms2_path):
-                    ms2_df = pd.read_csv(ms2_path)
-                    if not ms2_df.empty:
-                        closest_idx = (ms2_df['ms2_rt'] - max_rt).abs().idxmin()
-                        row = ms2_df.loc[closest_idx]
-                        fig.add_trace(go.Scatter(x=[row["ms2_rt"]]*2, y=[0,1],
-                                                 name=f"MS2 {tag} {adduct} (RT: {row['ms2_rt']:.2f})",
-                                                 line=dict(color=color, dash='dash')),
-                                      row=2, col=1)
+                # MS2: the spectrum selected in the summary table
+                peak_list = _clean(row.get("peak_list"))
+                if pd.notna(ms2_rt) and peak_list:
+                    fig.add_trace(go.Scatter(x=[ms2_rt]*2, y=[0, 1],
+                                             name=f"MS2 {tag} {adduct} (RT: {ms2_rt:.2f})",
+                                             line=dict(color=color, dash='dash')),
+                                  row=2, col=1)
 
-                        peaks = [tuple(map(float, p.split(':'))) for p in row.get("peak_list", "").split(';') if ':' in p]
-                        if peaks:
-                            max_int = max(y for _, y in peaks)
-                            for mz, intensity in peaks:
-                                fig.add_trace(go.Scatter(x=[mz, mz], y=[0, intensity/max_int],
-                                                         mode='lines', line=dict(width=2, color=color),
-                                                         showlegend=False), row=3, col=1)
+                    peaks = [tuple(map(float, p.split(':'))) for p in peak_list.split(';') if ':' in p]
+                    if peaks:
+                        max_int = max(y for _, y in peaks)
+                        for mz, intensity in peaks:
+                            fig.add_trace(go.Scatter(x=[mz, mz], y=[0, intensity/max_int],
+                                                     mode='lines', line=dict(width=2, color=color),
+                                                     showlegend=False), row=3, col=1)
 
             fig.update_layout(height=900, width=800, showlegend=True)
             fig.update_xaxes(range=[0, 30], title_text='RT (min)', row=1, col=1)
@@ -80,16 +113,19 @@ def register_pdf_export(app):
             fig.update_yaxes(title_text='', range=[0, 1.05], showticklabels=False, row=3, col=1)
 
             img_bytes = fig.to_image(format="png", width=800, height=900, scale=2)
-            temp_img_path = f"/tmp/{group.get('group_name','group_plot')}.png"
-            with open(temp_img_path, 'wb') as f:
-                f.write(img_bytes)
+            # temporary file with a safe, unique name (group names may contain '/' etc.)
+            fd, temp_img_path = tempfile.mkstemp(suffix=".png")
+            try:
+                with os.fdopen(fd, 'wb') as f:
+                    f.write(img_bytes)
 
-            pdf.add_page()
-            pdf.set_font("Arial", size=12)
-            pdf.cell(0, 10, f"Compound Group: {group.get('group_name','Unnamed')}", ln=True)
-            pdf.ln(20)
-            pdf.image(temp_img_path, x=10, w=180)
-            os.remove(temp_img_path)
+                pdf.add_page()
+                pdf.set_font("Arial", size=12)
+                pdf.cell(0, 10, f"Compound Group: {group.get('group_name','Unnamed')}", ln=True)
+                pdf.ln(20)
+                pdf.image(temp_img_path, x=10, w=180)
+            finally:
+                os.remove(temp_img_path)
 
         pdf_bytes = pdf.output(dest='S').encode('latin-1')
         output = BytesIO(pdf_bytes)
