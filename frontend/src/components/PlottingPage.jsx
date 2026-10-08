@@ -63,14 +63,58 @@ const QC_SCORE_COLORS = {
   1: { bg: 'rgba(211,47,47,0.16)', fg: '#c62828' },
 };
 
-function QcScoreBadge({ score }) {
+/* Plain-language explanation of each score: what it means and what to do. */
+const QC_SCORE_INFO = {
+  5: {
+    name: 'Strong evidence',
+    meaning: 'MS1 peak found, an MS2 spectrum was recorded at the peak, the MS2 spectra agree with each other (or only one was recorded, so there is nothing to compare), and peak height and signal-to-noise are above your thresholds.',
+    action: 'Usually fine. A quick look at the plot is enough.',
+  },
+  4: {
+    name: 'Good, but weak signal',
+    meaning: 'Same as 5, except the peak height or signal-to-noise is below your thresholds.',
+    action: 'Check that the peak is a real peak and not noise.',
+  },
+  3: {
+    name: 'MS2 spectra disagree',
+    meaning: 'MS1 peak and MS2 found, but the MS2 spectra recorded across the peak look different from each other (similarity below 0.8).',
+    action: 'Compare the MS2 spectra. Another compound may elute at the same time.',
+  },
+  2: {
+    name: 'Needs review',
+    meaning: 'Either no MS2 spectrum was recorded near the MS1 peak, or a warning was raised: the peak RT differs between tags, or another compound was given the same peak.',
+    action: 'Read the warning under the row. Pick the correct peak in "MS1 Peak", or untick the flags that do not hold.',
+  },
+  1: {
+    name: 'Not detected',
+    meaning: 'No MS1 peak was found for this m/z in this tag.',
+    action: 'The compound is probably not present, or not ionised in this mode.',
+  },
+};
+
+/** Tooltip text for a score badge: meaning, the reason for this row, what to do. */
+function qcScoreTooltip(score, note, scope) {
+  const info = QC_SCORE_INFO[score];
+  if (!info) return '';
+  const lines = [`QC score ${score} of 5: ${info.name}`];
+  if (scope === 'compound') lines.push('(lowest score among this compound\'s tags)');
+  lines.push('', info.meaning);
+  if (note) lines.push('', `This row: ${note}`);
+  lines.push('', `What to do: ${info.action}`);
+  lines.push('', 'The score rates data quality, not identification confidence. 5 = strongest, 1 = weakest.');
+  return lines.join('\n');
+}
+
+function QcScoreBadge({ score, note, scope = 'row' }) {
   const s = Number(score);
-  if (!Number.isFinite(s) || !QC_SCORE_COLORS[s]) return <span style={{ color: '#888' }}>–</span>;
+  if (!Number.isFinite(s) || !QC_SCORE_COLORS[s]) {
+    return <span style={{ color: '#888' }} title="No QC score yet: run the extraction again to calculate it.">–</span>;
+  }
   const c = QC_SCORE_COLORS[s];
   return (
     <span
-      title="pyMSscreen QC score (5 = strongest evidence, 1 = weakest)"
-      style={{ background: c.bg, color: c.fg, borderRadius: 4, padding: '1px 8px', fontWeight: 600, fontSize: 12 }}
+      title={qcScoreTooltip(s, note, scope)}
+      style={{ background: c.bg, color: c.fg, borderRadius: 4, padding: '1px 8px', fontWeight: 600, fontSize: 12, cursor: 'help' }}
     >
       {s}
     </span>
@@ -913,7 +957,7 @@ useEffect(() => {
             formatOptionLabel={(opt) => (
               <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                 <span>{opt.label}</span>
-                <QcScoreBadge score={opt.score} />
+                <QcScoreBadge score={opt.score} scope="compound" />
               </span>
             )}
             value={compoundOptions[currentIndex] || null}
@@ -994,7 +1038,7 @@ useEffect(() => {
                 <td style={tdStyle}>{row.tag}</td>
                 <td style={tdStyle}>{row.adduct}</td>
                 <td style={tdStyle}>{renderPeakSelect(row, key, flags)}</td>
-                <td style={{ ...tdStyle, textAlign: 'center' }}><QcScoreBadge score={summaryRow?.qc_score} /></td>
+                <td style={{ ...tdStyle, textAlign: 'center' }}><QcScoreBadge score={summaryRow?.qc_score} note={summaryRow?.qc_score_note} /></td>
                 {['MS1_Exists','MS2_Exists','MS1_Intensity','S2N_ratio','RT_Alignment'].map(flag => (
                   <td key={flag} style={{ ...tdStyle, textAlign: 'center' }}>
                     <input
@@ -1028,15 +1072,29 @@ useEffect(() => {
     )}
     <details style={{ fontSize: 11, marginTop: 6 }}>
       <summary style={{ cursor: 'pointer' }}>What is the QC score?</summary>
-      <div style={{ lineHeight: 1.6, marginTop: 4 }}>
-        <div><QcScoreBadge score={5} /> MS1 peak, MS2 near peak, consistent MS2 scans, intensity and S/N passed</div>
-        <div><QcScoreBadge score={4} /> MS1 peak, MS2 near peak, consistent MS2 scans</div>
-        <div><QcScoreBadge score={3} /> MS1 peak, MS2 near peak</div>
-        <div><QcScoreBadge score={2} /> MS1 peak, no MS2 near peak — or a warning that needs review</div>
-        <div><QcScoreBadge score={1} /> no MS1 peak</div>
-        <div style={{ marginTop: 4 }}>
-          Describes data quality, not identification confidence. Follows the flags above,
-          so it updates after "Update Summary Table".
+      <div style={{ lineHeight: 1.5, marginTop: 6 }}>
+        <div style={{ marginBottom: 6 }}>
+          A number from <b>5 (strongest evidence)</b> to <b>1 (weakest)</b> that rates how good the
+          data for a compound is in each tag. It does <b>not</b> say whether the identification is
+          correct. Hover over a score to see why that row got it.
+        </div>
+        {[5, 4, 3, 2, 1].map((s) => (
+          <div key={s} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+            <span style={{ flex: '0 0 auto' }}><QcScoreBadge score={s} /></span>
+            <span>
+              <b>{QC_SCORE_INFO[s].name}.</b> {QC_SCORE_INFO[s].meaning}{' '}
+              <i>{QC_SCORE_INFO[s].action}</i>
+            </span>
+          </div>
+        ))}
+        <div style={{ marginTop: 8, fontWeight: 600 }}>Terms used</div>
+        <div><b>MS1 peak</b>: the chromatographic peak of the compound's m/z (the plot's peak #1, or the one picked in "MS1 Peak").</div>
+        <div><b>MS2 near peak</b>: an MS2 spectrum of this m/z recorded within the RT tolerance of the MS1 peak.</div>
+        <div><b>MS2 consistency</b>: how alike the MS2 spectra across the peak are (cosine similarity, 1 = identical, 0 = nothing in common).</div>
+        <div><b>apex, S/N</b>: peak height, and peak height divided by the average signal of the trace.</div>
+        <div><b>Warnings</b>: "RT differs from …" means the same compound elutes at different times in two tags, so one of the peaks is wrong. "Same peak as …" means another compound (often an isomer) was given the same peak.</div>
+        <div style={{ marginTop: 6 }}>
+          The score follows the flags above, so it changes after you edit them and click "Update Summary Table".
         </div>
       </div>
     </details>
