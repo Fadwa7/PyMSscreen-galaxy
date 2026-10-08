@@ -5,6 +5,8 @@ import yaml
 import numpy as np
 import pandas as pd
 from app.jobs.job_store import update_job
+from app.spectral_similarity import near_scan_consistency
+from app.qc_score import add_qc_score
 
 def load_pyopenms():
     """
@@ -123,6 +125,85 @@ def find_top_peaks(rts, intensities, n=3, min_separation=0.15,
             if len(picked) == n:
                 break
     return picked
+
+
+def _ppm_from_config(config, default=10.0):
+    """MS1 fine tolerance in ppm from extract_config.yaml ("10 ppm"); default if missing."""
+    try:
+        return float(str(config["tolerance"]["ms1 fine"]).replace("ppm", "").strip())
+    except Exception:
+        return default
+
+
+def add_cross_checks(summary_df, comp_df, rt_tol, ppm_tol):
+    """
+    Checks that compare rows with each other (a single row cannot show these):
+
+    rt_diff_other_tags : largest MS1 RT difference (min) to the same compound in
+        other tags. With the same LC method, a compound must elute at the same RT
+        in every tag; a difference above rt_tol means at least one peak is wrong.
+    shared_peak_with   : other compounds assigned the very same MS1 peak in the
+        same tag (same RT and m/z within ppm_tol), e.g. isomers.
+    qc_warnings        : both findings as readable text ("" if none).
+
+    Returns a new DataFrame; the input is not modified.
+    """
+    df = summary_df.copy()
+    n = len(df)
+    ids = df["ID"].astype(str).to_numpy()
+    tags = df["tag"].astype(str).str.strip().to_numpy()
+    names = df["Name"].fillna("").astype(str).to_numpy() if "Name" in df.columns else [""] * n
+    rts = pd.to_numeric(df["ms1_rt"], errors="coerce").to_numpy(dtype=float)
+
+    mz_map = {}
+    if comp_df is not None and "mz" in comp_df.columns:
+        for r in comp_df.to_dict("records"):
+            mz = pd.to_numeric(r.get("mz"), errors="coerce")
+            if pd.notna(mz):
+                mz_map[(str(r["ID"]), _clean_str(r.get("adduct")), str(r["tag"]).strip())] = float(mz)
+    mzs = np.array([mz_map.get((i, _clean_str(a), t), np.nan)
+                    for i, a, t in zip(ids, df["adduct"], tags)], dtype=float)
+
+    rt_diff = np.full(n, np.nan)
+    shared = [[] for _ in range(n)]
+    warnings = [[] for _ in range(n)]
+
+    # 1) RT agreement between tags of the same compound
+    for _, pos in pd.Series(range(n)).groupby(ids):
+        pos = list(pos)
+        for i in pos:
+            if np.isnan(rts[i]):
+                continue
+            others = [j for j in pos if tags[j] != tags[i] and not np.isnan(rts[j])]
+            if not others:
+                continue
+            j = max(others, key=lambda k: abs(rts[k] - rts[i]))
+            rt_diff[i] = abs(rts[j] - rts[i])
+            if rt_diff[i] > rt_tol:
+                warnings[i].append(f"RT differs from {tags[j]} by {rt_diff[i]:.2f} min")
+
+    # 2) same peak assigned to different compounds (same tag, same RT, same m/z)
+    keys = pd.Series([f"{t}|{r:.4f}" if not np.isnan(r) else "" for t, r in zip(tags, rts)])
+    for key, pos in pd.Series(range(n)).groupby(keys.to_numpy()):
+        pos = list(pos)
+        if not key or len(pos) < 2:
+            continue
+        for i in pos:
+            for j in pos:
+                if ids[j] == ids[i] or np.isnan(mzs[i]) or np.isnan(mzs[j]):
+                    continue
+                if abs(mzs[i] - mzs[j]) <= mzs[i] * ppm_tol * 1e-6:
+                    label = f"{ids[j]} {names[j]}".strip()
+                    if label not in shared[i]:
+                        shared[i].append(label)
+        for i in pos:
+            if shared[i]:
+                warnings[i].append("Same peak as " + ", ".join(shared[i]))
+
+    df["rt_diff_other_tags"] = rt_diff
+    df["shared_peak_with"] = ["; ".join(s) for s in shared]
+    df["qc_warnings"] = ["; ".join(w) for w in warnings]
+    return df
 
 
 def _clean_str(value):
@@ -303,6 +384,8 @@ def _prescreen_impl(working_dir, job_id=None) -> dict:
                 "ms2_n_scans": 0,            # MS2 scans matching the precursor m/z
                 "ms2_n_near": 0,             # of those, within the RT tolerance of the MS1 peak
                 "ms2_rt_delta": None,        # ms2_rt - ms1_rt (min) of the selected MS2 scan
+                "ms2_consistency": None,     # median cosine between MS2 scans near the peak
+                "ms2_n_compared": 0,         # number of MS2 scan pairs compared
             }
 
             rt_peak = None
@@ -343,6 +426,9 @@ def _prescreen_impl(working_dir, job_id=None) -> dict:
                     if rt_peak is not None and "ms2_rt" in ms2_df.columns:
                         diffs = (ms2_df["ms2_rt"] - rt_peak).abs()
                         summary["ms2_n_near"] = int((diffs < rt_tol).sum())
+                        cons, n_pairs = near_scan_consistency(ms2_df, rt_peak, rt_tol)
+                        summary["ms2_consistency"] = cons
+                        summary["ms2_n_compared"] = n_pairs
                         if (diffs < rt_tol).any():
                             idx = diffs.idxmin()
                             summary["qa_ms2_near"] = True
@@ -370,6 +456,10 @@ def _prescreen_impl(working_dir, job_id=None) -> dict:
                 prog = 60 + int(39 * done / total)
                 update_job(working_dir, job_id, progress=prog, message=f"Prescreen {done}/{total}…")
 
+        summary_df = add_cross_checks(pd.DataFrame(summary_rows), compound_df,
+                                      rt_tol, _ppm_from_config(config))
+        summary_df = add_qc_score(summary_df)
+
         out = os.path.join(working_dir, "summary_table.csv")
         try:
             backup = _backup_summary_table(working_dir)
@@ -377,7 +467,7 @@ def _prescreen_impl(working_dir, job_id=None) -> dict:
             # do not overwrite the old table if it could not be backed up
             return {"status": "error",
                     "message": f"Could not back up existing summary_table.csv, nothing was overwritten: {e}"}
-        pd.DataFrame(summary_rows).to_csv(out, index=False)
+        summary_df.to_csv(out, index=False)
         return {"status": "success", "summary_path": out, "backup_path": backup}
     except Exception as e:
         return {"status": "error", "message": str(e)}

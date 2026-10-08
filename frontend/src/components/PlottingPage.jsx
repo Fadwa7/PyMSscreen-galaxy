@@ -54,6 +54,47 @@ import { exportCombinedPlot } from './PlotExporter';
 import { exportSummaryPDF, saveQAFlags, loadExtractionConfig, API_BASE} from '../api/api';
 import { useNavigate } from 'react-router-dom';
 
+/* ---------- QC score (5 = strongest evidence, 1 = weakest) ---------- */
+const QC_SCORE_COLORS = {
+  5: { bg: 'rgba(46,125,50,0.18)', fg: '#2e7d32' },
+  4: { bg: 'rgba(46,125,50,0.12)', fg: '#2e7d32' },
+  3: { bg: 'rgba(25,118,210,0.15)', fg: '#1565c0' },
+  2: { bg: 'rgba(237,108,2,0.18)', fg: '#b45309' },
+  1: { bg: 'rgba(211,47,47,0.16)', fg: '#c62828' },
+};
+
+function QcScoreBadge({ score }) {
+  const s = Number(score);
+  if (!Number.isFinite(s) || !QC_SCORE_COLORS[s]) return <span style={{ color: '#888' }}>–</span>;
+  const c = QC_SCORE_COLORS[s];
+  return (
+    <span
+      title="pyMSscreen QC score (5 = strongest evidence, 1 = weakest)"
+      style={{ background: c.bg, color: c.fg, borderRadius: 4, padding: '1px 8px', fontWeight: 600, fontSize: 12 }}
+    >
+      {s}
+    </span>
+  );
+}
+
+/** Measured values and notes behind the QC score, as one short line. */
+function qcBreakdown(s) {
+  if (!s) return '';
+  const num = (v) => (v === null || v === undefined || v === '' ? NaN : Number(v));
+  const parts = [];
+  const apex = num(s.ms1_apex_intensity);
+  const sn = num(s.ms1_sn);
+  const delta = num(s.ms2_rt_delta);
+  const cons = num(s.ms2_consistency);
+  if (Number.isFinite(apex)) parts.push(`apex ${apex.toExponential(1)}`);
+  if (Number.isFinite(sn)) parts.push(`S/N ${sn.toFixed(0)}`);
+  if (Number.isFinite(delta)) parts.push(`MS2 ${delta >= 0 ? '+' : ''}${delta.toFixed(2)} min`);
+  if (Number.isFinite(num(s.ms2_n_scans))) parts.push(`MS2 scans ${num(s.ms2_n_near) || 0} near / ${num(s.ms2_n_scans)}`);
+  if (Number.isFinite(cons)) parts.push(`consistency ${cons.toFixed(2)}`);
+  if (s.qc_score_note) parts.push(String(s.qc_score_note));
+  return parts.join(' · ');
+}
+
 // --- dark mode support (inline, no CSS files) ---
 const usePrefersDark = () => {
   const [isDark, setIsDark] = React.useState(
@@ -186,6 +227,7 @@ const PlottingPage = () => {
   const [exportPayload, setExportPayload] = useState(null);
   const [qaFlags, setQaFlags] = useState({});
   const [peakOptions, setPeakOptions] = useState({}); // top MS1 peaks per row, from CompoundPlot
+  const [sortByScore, setSortByScore] = useState(false); // compound list: lowest QC score first
   const [toastMessage, setToastMessage] = useState('');
   const qaFlagsCache = useRef({});
   const isTrue = (val) => val === true || val === 'true' || val === 'True' || val === 1 || val === '1';
@@ -308,7 +350,19 @@ const PlottingPage = () => {
         grouped[row.ID].push(row);
       }
     });
-    const result = Object.entries(grouped).map(([id, group]) => ({ id, group }));
+    // lowest QC score of the compound's rows (so a weak tag is never hidden)
+    const findSummary = (r) => (summaryData || []).find(
+      (s) => s.ID === r.ID && s.adduct === r.adduct && s.tag === r.tag
+    );
+    let result = Object.entries(grouped).map(([id, group]) => {
+      const scores = group
+        .map((r) => Number(findSummary(r)?.qc_score))
+        .filter(Number.isFinite);
+      return { id, group, score: scores.length ? Math.min(...scores) : null };
+    });
+    if (sortByScore) {
+      result = [...result].sort((a, b) => (a.score ?? 99) - (b.score ?? 99));
+    }
 
     setGroupedByID(result);
     const prevSelectedId = selectedIdRef.current || (compoundOptions[currentIndex]?.value);
@@ -326,7 +380,8 @@ const PlottingPage = () => {
           : `${entry.id} - ${Number(first?.mz ?? 0).toFixed(4)}`;
       return {
         value: entry.id,
-        label
+        label,
+        score: entry.score
       };
     }));
 
@@ -339,7 +394,7 @@ const PlottingPage = () => {
     setCurrentIndex(newIndex);
      selectedIdRef.current = result[newIndex]?.id?.toString() || null;
      // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [compounds, selectedTags, selectedAdducts]);
+  }, [compounds, selectedTags, selectedAdducts, summaryData, sortByScore]);
 
   /**
  * Extract unique values for a given field from compound rows.
@@ -848,9 +903,19 @@ useEffect(() => {
           <Select isMulti options={adductOptions} onChange={setSelectedAdducts} styles={selectStyles} />
 
           <label style={{ marginTop: '10px' }}>Select Compound:</label>
+          <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, margin: '4px 0' }}>
+            <input type="checkbox" checked={sortByScore} onChange={(e) => setSortByScore(e.target.checked)} />
+            Lowest QC score first
+          </label>
           <Select
             options={compoundOptions}
             styles={selectStyles}
+            formatOptionLabel={(opt) => (
+              <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <span>{opt.label}</span>
+                <QcScoreBadge score={opt.score} />
+              </span>
+            )}
             value={compoundOptions[currentIndex] || null}
             onChange={(selected) => {
               const index = compoundOptions.findIndex(opt => opt.value === selected.value);
@@ -906,6 +971,7 @@ useEffect(() => {
             <th style={thStyle}>Tag</th>
             <th style={thStyle}>Adduct</th>
             <th style={thStyle}>MS1 Peak</th>
+            <th style={thStyle}>QC score</th>
             <th style={thStyle}>MS1 Exists</th>
             <th style={thStyle}>MS2 Exists</th>
             <th style={thStyle}>MS1 Intensity</th>
@@ -917,11 +983,18 @@ useEffect(() => {
           {(selectedGroup || []).map((row, idx) => {
             const key = `${row.ID}_${row.adduct}_${row.tag}`;
             const flags = qaFlags[key] || {};
+            const summaryRow = (summaryData || []).find(
+              (s) => s.ID === row.ID && s.adduct === row.adduct && s.tag === row.tag
+            );
+            const breakdown = qcBreakdown(summaryRow);
+            const warnings = summaryRow?.qc_warnings ? String(summaryRow.qc_warnings) : '';
             return (
-              <tr key={idx}>
+              <React.Fragment key={idx}>
+              <tr>
                 <td style={tdStyle}>{row.tag}</td>
                 <td style={tdStyle}>{row.adduct}</td>
                 <td style={tdStyle}>{renderPeakSelect(row, key, flags)}</td>
+                <td style={{ ...tdStyle, textAlign: 'center' }}><QcScoreBadge score={summaryRow?.qc_score} /></td>
                 {['MS1_Exists','MS2_Exists','MS1_Intensity','S2N_ratio','RT_Alignment'].map(flag => (
                   <td key={flag} style={{ ...tdStyle, textAlign: 'center' }}>
                     <input
@@ -933,6 +1006,17 @@ useEffect(() => {
                   </td>
                 ))}
               </tr>
+              {(breakdown || warnings) && (
+                <tr>
+                  <td colSpan={9} style={{ ...tdStyle, fontSize: 11, paddingTop: 0, whiteSpace: 'normal' }}>
+                    <span style={{ opacity: 0.8 }}>{breakdown}</span>
+                    {warnings && (
+                      <div style={{ color: '#b45309', marginTop: 2 }}>⚠ {warnings}</div>
+                    )}
+                  </td>
+                </tr>
+              )}
+              </React.Fragment>
             );
           })}
         </tbody>
@@ -942,6 +1026,20 @@ useEffect(() => {
         No compound selected
       </div>
     )}
+    <details style={{ fontSize: 11, marginTop: 6 }}>
+      <summary style={{ cursor: 'pointer' }}>What is the QC score?</summary>
+      <div style={{ lineHeight: 1.6, marginTop: 4 }}>
+        <div><QcScoreBadge score={5} /> MS1 peak, MS2 near peak, consistent MS2 scans, intensity and S/N passed</div>
+        <div><QcScoreBadge score={4} /> MS1 peak, MS2 near peak, consistent MS2 scans</div>
+        <div><QcScoreBadge score={3} /> MS1 peak, MS2 near peak</div>
+        <div><QcScoreBadge score={2} /> MS1 peak, no MS2 near peak — or a warning that needs review</div>
+        <div><QcScoreBadge score={1} /> no MS1 peak</div>
+        <div style={{ marginTop: 4 }}>
+          Describes data quality, not identification confidence. Follows the flags above,
+          so it updates after "Update Summary Table".
+        </div>
+      </div>
+    </details>
   </div>
 </div>
 

@@ -9,7 +9,10 @@ import yaml
 from flask import Blueprint, request, jsonify, send_file, current_app
 
 from app.utils import get_working_dir
-from app.routes.extract_prescreen_mspgen import build_feature_base, generate_msp_library, find_top_peaks
+from app.spectral_similarity import near_scan_consistency
+from app.qc_score import add_qc_score
+from app.routes.extract_prescreen_mspgen import (
+    build_feature_base, generate_msp_library, find_top_peaks, add_cross_checks, _ppm_from_config)
 
 data_bp = Blueprint("data", __name__)
 
@@ -93,6 +96,9 @@ def _apply_selected_peak(df, idx, ms1_rt, working_directory, settings):
     ms2_path = os.path.join(working_directory, "ms2_spectra", f"{base}_MS2.csv")
     best = None
     n_near = 0
+    if "ms2_consistency" in df.columns:  # reset; recalculated below if MS2 scans exist
+        df.at[idx, "ms2_consistency"] = np.nan
+        df.at[idx, "ms2_n_compared"] = 0
     if os.path.exists(ms2_path):
         ms2_df = pd.read_csv(ms2_path)
         if not ms2_df.empty and "ms2_rt" in ms2_df.columns:
@@ -100,6 +106,10 @@ def _apply_selected_peak(df, idx, ms1_rt, working_directory, settings):
             n_near = int((diffs < rt_tol).sum())
             if (diffs < rt_tol).any():
                 best = ms2_df.loc[diffs.idxmin()]
+            if "ms2_consistency" in df.columns:
+                cons, n_pairs = near_scan_consistency(ms2_df, ms1_rt, rt_tol)
+                df.at[idx, "ms2_consistency"] = np.nan if cons is None else cons
+                df.at[idx, "ms2_n_compared"] = n_pairs
     if "ms2_n_near" in df.columns:
         df.at[idx, "ms2_n_near"] = n_near
 
@@ -389,6 +399,22 @@ def save_qa_flags():
         ]:
             if col in df.columns:
                 df[col] = df[col].astype(bool)
+
+        # cross-checks between rows (RT agreement between tags, shared peaks) can
+        # change when a peak is changed; refresh them (only for tables that have them)
+        comp_path = os.path.join(working_directory, "comprehensive_table.csv")
+        if "qc_warnings" in df.columns and os.path.exists(comp_path):
+            try:
+                with open(os.path.join(working_directory, "extract_config.yaml"), "r") as f:
+                    ppm_tol = _ppm_from_config(yaml.safe_load(f) or {})
+            except Exception:
+                ppm_tol = _ppm_from_config({})
+            settings = _load_prescreen_settings(working_directory)
+            df = add_cross_checks(df, pd.read_csv(comp_path), settings["rt_tol"], ppm_tol)
+
+        # QC score follows the (possibly reviewed) flags; only for tables that have it
+        if "qc_score" in df.columns:
+            df = add_qc_score(df)
 
         print(f"Writing updated summary table to: {table_path}")
         df.to_csv(table_path, index=False)
