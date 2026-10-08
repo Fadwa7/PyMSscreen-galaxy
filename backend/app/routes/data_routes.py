@@ -80,24 +80,36 @@ def _apply_selected_peak(df, idx, ms1_rt, working_directory, settings):
 
     apex, mean = _measure_ms1_peak(
         os.path.join(working_directory, "ms2_spectra", f"{base}_EIC.csv"), ms1_rt)
+    if apex is not None:
+        # measured values for the new peak (only if the table has these columns)
+        if "ms1_apex_intensity" in df.columns:
+            df.at[idx, "ms1_apex_intensity"] = apex
+        if "ms1_sn" in df.columns:
+            df.at[idx, "ms1_sn"] = apex / mean if mean > 0 else np.nan
     if apex is not None and settings["ms1_thresh"] is not None:
         df.at[idx, "qa_ms1_good_int"] = bool(apex > settings["ms1_thresh"])
         df.at[idx, "qa_ms1_above_noise"] = bool(apex > mean * settings["s2n"])
 
     ms2_path = os.path.join(working_directory, "ms2_spectra", f"{base}_MS2.csv")
     best = None
+    n_near = 0
     if os.path.exists(ms2_path):
         ms2_df = pd.read_csv(ms2_path)
         if not ms2_df.empty and "ms2_rt" in ms2_df.columns:
             diffs = (ms2_df["ms2_rt"] - ms1_rt).abs()
+            n_near = int((diffs < rt_tol).sum())
             if (diffs < rt_tol).any():
                 best = ms2_df.loc[diffs.idxmin()]
+    if "ms2_n_near" in df.columns:
+        df.at[idx, "ms2_n_near"] = n_near
 
     if best is not None:
         df.at[idx, "qa_ms2_near"] = True
         df.at[idx, "alignment"] = True
         df.at[idx, "ms2_sel"] = True
         df.at[idx, "ms2_rt"] = float(best["ms2_rt"])
+        if "ms2_rt_delta" in df.columns:
+            df.at[idx, "ms2_rt_delta"] = float(best["ms2_rt"]) - ms1_rt
         df.at[idx, "peak_list"] = best["peak_list"]
     else:
         df.at[idx, "qa_ms2_near"] = False
@@ -105,6 +117,8 @@ def _apply_selected_peak(df, idx, ms1_rt, working_directory, settings):
         df.at[idx, "ms2_sel"] = False
         df.at[idx, "ms2_rt"] = np.nan
         df.at[idx, "peak_list"] = np.nan
+        if "ms2_rt_delta" in df.columns:
+            df.at[idx, "ms2_rt_delta"] = np.nan
     return best is not None
 
 @data_bp.route("/get_csv")

@@ -296,7 +296,13 @@ def _prescreen_impl(working_dir, job_id=None) -> dict:
                 "qa_ms1_exists": False, "qa_ms1_good_int": False, "qa_ms1_above_noise": False,
                 "qa_ms2_exists": False, "qa_ms2_good_int": False, "qa_ms2_near": False,
                 "qa_pass": False, "alignment": False, "ms2_sel": False,
-                "ms1_rt": None, "ms2_rt": None, "peak_list": None
+                "ms1_rt": None, "ms2_rt": None, "peak_list": None,
+                # measured values behind the flags (QC score, step 1)
+                "ms1_apex_intensity": None,  # height of the chosen MS1 peak
+                "ms1_sn": None,              # apex / mean of the EIC trace (same as the S/N flag)
+                "ms2_n_scans": 0,            # MS2 scans matching the precursor m/z
+                "ms2_n_near": 0,             # of those, within the RT tolerance of the MS1 peak
+                "ms2_rt_delta": None,        # ms2_rt - ms1_rt (min) of the selected MS2 scan
             }
 
             rt_peak = None
@@ -317,6 +323,9 @@ def _prescreen_impl(working_dir, job_id=None) -> dict:
                     if rt_peak is not None:
                         summary["qa_ms1_exists"] = True
                         summary["ms1_rt"]   = rt_peak
+                        summary["ms1_apex_intensity"] = float(peak_int)
+                        if mean_int > 0:
+                            summary["ms1_sn"] = float(peak_int / mean_int)
                         summary["alignment"]= True
                         # intensity checks use the chosen peak, not the highest point
                         # of the whole trace (a one-scan spike could pass otherwise)
@@ -327,16 +336,19 @@ def _prescreen_impl(working_dir, job_id=None) -> dict:
                 ms2_df = pd.read_csv(ms2_path)
                 if not ms2_df.empty:
                     summary["qa_ms2_exists"] = True
+                    summary["ms2_n_scans"] = int(len(ms2_df))
                     summary["qa_ms2_good_int"] = ms2_df["peak_list"].apply(
                         lambda x: any(float(p.split(":")[1]) > ms2_thresh for p in x.split(";") if ":" in p)
                     ).any()
                     if rt_peak is not None and "ms2_rt" in ms2_df.columns:
                         diffs = (ms2_df["ms2_rt"] - rt_peak).abs()
+                        summary["ms2_n_near"] = int((diffs < rt_tol).sum())
                         if (diffs < rt_tol).any():
                             idx = diffs.idxmin()
                             summary["qa_ms2_near"] = True
                             summary["ms2_sel"]     = True
                             summary["ms2_rt"]      = float(ms2_df.loc[idx, "ms2_rt"])
+                            summary["ms2_rt_delta"] = summary["ms2_rt"] - rt_peak
                             summary["peak_list"] = ms2_df.loc[idx, "peak_list"]
                         else:
                             summary["alignment"]   = False
