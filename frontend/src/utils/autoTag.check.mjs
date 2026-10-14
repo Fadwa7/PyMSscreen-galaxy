@@ -1,0 +1,15 @@
+import { suggestTags, sanitizeTag, compressRuns } from './autoTag.js';
+import assert from 'node:assert/strict';
+const show = (title, names, reserved=[]) => { console.log(title); suggestTags(names, reserved).forEach((t,i)=>console.log(`    ${names[i].padEnd(42)} -> ${t}`)); };
+const sc=["SC07_SC08_SC09_Inlet_ACN_DCM_neg.mzML","SC07_SC08_SC09_Inlet_ACN_DCM_pos.mzML","SC10_SC11_SC12_Outlet_ACN_DCM_neg.mzML","SC10_SC11_SC12_Outlet_ACN_DCM_pos.mzML"];
+const isb=["ISB401_AA_KO_NEG_DLD3_1.mzML","ISB401_AA_KO_POS_DLD3_1.mzML","ISB401_AA_STD_NEG_METmix_1.mzML","ISB401_AA_STD_POS_METmix_1.mzML","ISB401_AA_WT_NEG_FY4_1.mzML","ISB401_AA_WT_POS_FY4_1.mzML"];
+show("Your SC set:", sc); show("Your ISB401 set:", isb);
+show("Only one file:", ["SC07_SC08_SC09_Inlet_ACN_DCM_neg.mzML"]);
+show("Same suggestion twice -> made unique:", ["Run_A_x_neg.mzML","Run_A_y_neg.mzML","Run_A_x_neg (copy).mzML"]);
+show("A tag already used by a saved file:", ["Proj_Inlet_neg.mzML","Proj_Outlet_neg.mzML"], ["Inlet_neg"]);
+assert.deepEqual(suggestTags(sc), ["SC07-09_Inlet_neg","SC07-09_Inlet_pos","SC10-12_Outlet_neg","SC10-12_Outlet_pos"]);
+assert.deepEqual(suggestTags(isb), ["KO_NEG_DLD3","KO_POS_DLD3","STD_NEG_METmix","STD_POS_METmix","WT_NEG_FY4","WT_POS_FY4"]);
+assert.equal(sanitizeTag(" a b/c:d*e "), "a_bcde");
+assert.equal(compressRuns("SC07_SC08_SC10"), "SC07-08_SC10");
+assert.equal(new Set(suggestTags([...sc, ...isb])).size, 10);
+console.log("\nall checks passed");

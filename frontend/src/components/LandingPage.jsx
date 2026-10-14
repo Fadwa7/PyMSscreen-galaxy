@@ -3,6 +3,7 @@ import { saveState, loadState, generateTable } from '../api/api';
 import { useAppState } from '../context/AppStateContext';
 import { useNavigate } from 'react-router-dom';
 import RibbonHeader from "../components/RibbonHeader";
+import { suggestTagsForNew, sanitizeTag } from '../utils/autoTag';
 
 
 // --- dark mode support (inline, no CSS files) ---
@@ -199,6 +200,35 @@ const LandingPage = () => {
   const [compoundCSV, setCompoundCSV] = useState(null);
   const [mzmlFiles, setMzmlFiles] = useState([]);
   const [tags, setTags] = useState({});
+  // tags suggested from the file names (to show "suggested" and offer a reset)
+  const [autoTags, setAutoTags] = useState({});
+
+  /**
+   * New mzML selection: files that already have a tag keep it (saved or edited
+   * tags never change); new files get a tag suggested from their file names.
+   */
+  const handleMzmlSelect = (fileList) => {
+    const files = [...fileList];
+    const names = files.map((f) => f.name);
+    const kept = {};
+    names.forEach((n) => { if (tags[n]) kept[n] = tags[n]; });
+    const newNames = names.filter((n) => !kept[n]);
+    const suggested = suggestTagsForNew(names, newNames, Object.values(kept));
+    const nextTags = { ...kept };
+    const nextAuto = {};
+    names.forEach((n) => { if (autoTags[n]) nextAuto[n] = autoTags[n]; });
+    newNames.forEach((n, i) => { nextTags[n] = suggested[i]; nextAuto[n] = suggested[i]; });
+    setMzmlFiles(files);
+    setTags(nextTags);
+    setAutoTags(nextAuto);
+  };
+
+  // how often each tag is used, to flag duplicates
+  const tagCounts = mzmlFiles.reduce((acc, f) => {
+    const t = tags[f.name];
+    if (t) acc[t] = (acc[t] || 0) + 1;
+    return acc;
+  }, {});
 
   useEffect(() => {
   if (appState.working_directory && mzmlFiles.length === 0) {
@@ -225,6 +255,12 @@ const handleSaveState = async () => {
   const invalidTags = mzmlFiles.filter(f => !tags[f.name] || tags[f.name].trim() === '');
   if (invalidTags.length > 0) {
     alert('Please enter a tag for every mzML file before saving.');
+    return;
+  }
+  // tags identify the data files and are used in output file names: must be unique
+  const duplicates = Object.keys(tagCounts).filter((t) => tagCounts[t] > 1);
+  if (duplicates.length > 0) {
+    alert(`Each mzML file needs its own tag. Used more than once: ${duplicates.join(', ')}`);
     return;
   }
 
@@ -308,6 +344,11 @@ const handleSaveState = async () => {
   const handleDeleteRow = (fileName) => {
   setMzmlFiles(prev => prev.filter(file => file.name !== fileName));
   setTags(prev => {
+    const updated = { ...prev };
+    delete updated[fileName];
+    return updated;
+  });
+  setAutoTags(prev => {
     const updated = { ...prev };
     delete updated[fileName];
     return updated;
@@ -496,7 +537,7 @@ useEffect(() => {
           type="file"
           accept=".mzML"
           multiple
-          onChange={(e) => setMzmlFiles([...e.target.files])}
+          onChange={(e) => handleMzmlSelect(e.target.files)}
           style={{
             width: "100%",
             boxSizing: "border-box",
@@ -571,26 +612,65 @@ useEffect(() => {
             </td>
 
             <td style={{ padding: "12px 14px"}}>
-              <input
-                type="text"
-                value={tags[file.name] || ""}
-                onChange={(e) => {
-                  const val = e.target.value.replace(/\s/g, '');
-                  setTags((prev) => ({ ...prev, [file.name]: val  }))
-                }}
-                style={{
-                  width: "100%",
-                  boxSizing: "border-box",
-                  padding: "12px 14px",
-                  backgroundColor: theme.inputBg,
-                  color: theme.inputText,
-                  border: `1px solid ${theme.border}`,
-                  borderRadius: 6,
-                }}
-              />
-              <small style={{ color: theme.muted, fontSize: 11 }}>
-                No spaces. Tags are used in output filenames.
-              </small>
+              {(() => {
+                const tag = tags[file.name] || "";
+                const suggestion = autoTags[file.name];
+                const isEmpty = !tag;
+                const isDuplicate = !!tag && tagCounts[tag] > 1;
+                const isSuggested = !!suggestion && tag === suggestion;
+                const problem = isEmpty || isDuplicate;
+                return (
+                  <>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <input
+                        type="text"
+                        value={tag}
+                        title={`Tag for ${file.name}`}
+                        onChange={(e) => {
+                          const val = sanitizeTag(e.target.value);
+                          setTags((prev) => ({ ...prev, [file.name]: val }));
+                        }}
+                        style={{
+                          width: "100%",
+                          boxSizing: "border-box",
+                          padding: "12px 14px",
+                          backgroundColor: theme.inputBg,
+                          color: theme.inputText,
+                          border: `1px solid ${problem ? "#c62828" : theme.border}`,
+                          borderRadius: 6,
+                        }}
+                      />
+                      {suggestion && !isSuggested && (
+                        <button
+                          type="button"
+                          title={`Use the suggested tag: ${suggestion}`}
+                          onClick={() => setTags((prev) => ({ ...prev, [file.name]: suggestion }))}
+                          style={{
+                            whiteSpace: "nowrap",
+                            background: "transparent",
+                            color: theme.text,
+                            border: `1px solid ${theme.border}`,
+                            borderRadius: 6,
+                            padding: "8px 10px",
+                            cursor: "pointer",
+                          }}
+                        >
+                          ↺ Suggest
+                        </button>
+                      )}
+                    </div>
+                    <small style={{ color: problem ? "#c62828" : theme.muted, fontSize: 11 }}>
+                      {isEmpty
+                        ? "A tag is required."
+                        : isDuplicate
+                        ? "Used for another file. Each file needs its own tag."
+                        : isSuggested
+                        ? "Suggested from the file name. Edit it if it does not make sense."
+                        : "No spaces. Tags are used in output filenames."}
+                    </small>
+                  </>
+                );
+              })()}
             </td>
 
             <td style={{padding: "12px 14px" }}>
