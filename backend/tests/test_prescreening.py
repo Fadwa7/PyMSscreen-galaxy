@@ -10,9 +10,10 @@ flag so failures are unambiguous.
 
 QA flags tested
 ---------------
-qa_ms1_exists        — EIC file present and non-empty
-qa_ms1_good_int      — EIC max intensity > ms1_int_thresh
-qa_ms1_above_noise   — EIC max intensity > mean * s2n
+qa_ms1_exists        — an MS1 peak was found in the EIC (at least 3 scans above
+                       10% of its height; isolated single scans are not peaks)
+qa_ms1_good_int      — height of the chosen peak > ms1_int_thresh
+qa_ms1_above_noise   — height of the chosen peak > mean of the EIC * s2n
 qa_ms2_exists        — MS2 file present and non-empty
 qa_ms2_good_int      — at least one MS2 fragment above ms2_int_thresh
 qa_ms2_near          — closest MS2 scan within ret_time_shift_tol of MS1 peak
@@ -207,8 +208,9 @@ def test_qa_ms1_above_noise_false_flat_signal(tmp_path):
 def test_qa_ms1_above_noise_true_clear_peak(tmp_path):
     """
     Sharp peak against a flat baseline: max >> mean * s2n → flag True.
+    The peak spans 3 scans: a single-scan spike is not counted as a peak.
     """
-    ints = [1e3] * 10 + [5e5] + [1e3] * 10
+    ints = [1e3] * 9 + [2e5, 5e5, 2e5] + [1e3] * 9
     ms2  = [{"scan_id": "s1", "ms2_rt": 1.0,
               "ms2_intensity": 5e4, "peak_list": "100.00:2000"}]
     _build_fixture(str(tmp_path), ints, ms2, ms1_thresh=1e4, s2n=3)

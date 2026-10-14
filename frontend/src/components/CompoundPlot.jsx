@@ -225,7 +225,10 @@ n = 3,
 minSeparation = 0.15,
 prominenceFrac = 0.05,
 minWidthPoints = 3,
+minSignalPoints = 3,
+signalFrac = 0.1,
 } = {}) {
+// Keep identical to find_top_peaks() in backend extract_prescreen_mspgen.py.
 if (!rtArr?.length || rtArr.length !== intArr.length) return [];
 const sm = movingAverage(intArr, 5);
 const maxI = Math.max(...sm);
@@ -245,7 +248,26 @@ if (width < minWidthPoints) continue;
 const baseline = Math.max(Math.min(sm[l], sm[r]), 1e-12);
 const prom = sm[i] - baseline;
 if (prom >= minProm) {
-candidates.push({ idx: i, rt: Number(rtArr[i]), intensity: intArr[i], smVal: sm[i], prom });
+// whole peak: walk downhill (or flat) on the smoothed trace to each valley
+let a = i;
+while (a > 0 && sm[a - 1] <= sm[a]) a--;
+let b = i;
+while (b < sm.length - 1 && sm[b + 1] <= sm[b]) b++;
+// highest and lowest raw point of the peak region
+let k = a;
+let lo = intArr[a];
+for (let j = a; j <= b; j++) {
+if (intArr[j] > intArr[k]) k = j;
+if (intArr[j] < lo) lo = intArr[j];
+}
+// a real peak rises clearly above its background in several scans;
+// single-scan spikes and isolated points are not peaks
+const level = lo + signalFrac * (intArr[k] - lo);
+let signalPoints = 0;
+for (let j = a; j <= b; j++) if (intArr[j] > level) signalPoints++;
+if (signalPoints < minSignalPoints) continue;
+// mark the peak at its highest raw point (never at a zero next to the peak)
+candidates.push({ idx: k, rt: Number(rtArr[k]), intensity: intArr[k], smVal: sm[i], prom });
 }
 }
 }
