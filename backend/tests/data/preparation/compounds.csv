@@ -1,0 +1,5 @@
+ID,Name,SMILES,mz,precursor_mz,RT
+1,structure,NCC(O)=O,999,,1.2
+2,mass,,116.0707,,2.3
+3,precursor,CCO,999,123.456789,3.4
+4,missing,,,,

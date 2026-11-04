@@ -1,0 +1,9 @@
+ID,mz,rt,adduct,tag,set,Name,known,SMILES,Formula,InChIKey,file
+1,76.039304,1.2,[M+H]+,pos,compounds,structure,structure,NCC(O)=O,C2H5NO2,DHMQDGOQFOQNFH-UHFFFAOYSA-N,sample_pos.mzML
+1,98.021246,1.2,[M+Na]+,pos,compounds,structure,structure,NCC(O)=O,C2H5NO2,DHMQDGOQFOQNFH-UHFFFAOYSA-N,sample_pos.mzML
+1,74.024752,1.2,[M-H]-,neg,compounds,structure,structure,NCC(O)=O,C2H5NO2,DHMQDGOQFOQNFH-UHFFFAOYSA-N,sample_neg.mzML
+2,116.070700,2.3,[M+H]+,pos,compounds,mass,suspect,,,,sample_pos.mzML
+2,116.070700,2.3,[M+Na]+,pos,compounds,mass,suspect,,,,sample_pos.mzML
+2,116.070700,2.3,[M-H]-,neg,compounds,mass,suspect,,,,sample_neg.mzML
+3,123.456789,3.4,,pos,compounds,precursor,feature,CCO,,,sample_pos.mzML
+3,123.456789,3.4,,neg,compounds,precursor,feature,CCO,,,sample_neg.mzML

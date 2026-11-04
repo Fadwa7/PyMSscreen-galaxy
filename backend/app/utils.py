@@ -1,6 +1,5 @@
 import os
 import re
-import requests
 from typing import Tuple, Any
 
 try:
@@ -79,6 +78,8 @@ def _parse_json_safely(resp, step_name: str):
     return True, payload
 
 def _post_and_check(step_name: str, url: str, payload: dict) -> Tuple[bool, Any]:
+    import requests
+
     try:
         resp = requests.post(url, json=payload, timeout=None)
     except requests.RequestException as e:

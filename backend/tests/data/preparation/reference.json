@@ -1,0 +1,22 @@
+{
+  "source_commit": "c262654d69d4a16332b5939da322842fe4376d9e",
+  "source_file": "backend/app/routes/table_routes.py",
+  "versions": {
+    "pandas": "3.1.0",
+    "numpy": "2.5.4",
+    "rdkit": "2026.9.1",
+    "pyopenms": "3.6.0"
+  },
+  "method": "Original generate_table executed with HTTP envelope replaced by request/jsonify stubs; scientific imports, polarity detection and calculations unchanged.",
+  "positive_adducts": [
+    "[M+H]+",
+    "[M+Na]+"
+  ],
+  "negative_adducts": [
+    "[M-H]-"
+  ],
+  "tags": [
+    "pos",
+    "neg"
+  ]
+}
